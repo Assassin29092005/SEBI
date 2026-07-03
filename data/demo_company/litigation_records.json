@@ -1,0 +1,26 @@
+[
+  {
+    "case_number": "CS/AGR/2024/00001",
+    "forum": "Additional District Court, Nashik",
+    "parties": "Sunrise Agrotech Ltd vs. Green Valley Traders",
+    "nature": "civil",
+    "amount_involved_paise": 4500000,
+    "status": "Pending — recovery suit filed by the company against a dealer for unpaid invoices."
+  },
+  {
+    "case_number": "GST/APP/MH/2025/0000",
+    "forum": "GST Appellate Authority, Mumbai",
+    "parties": "Sunrise Agrotech Ltd vs. Commissioner (Appeals) CGST",
+    "nature": "tax",
+    "amount_involved_paise": 1200000,
+    "status": "Pending — appeal against disallowance of input tax credit for FY2023."
+  },
+  {
+    "case_number": "CC/CONS/PUN/2025/0000",
+    "forum": "District Consumer Disputes Redressal Commission, Pune",
+    "parties": "Kailash Powar vs. Sunrise Agrotech Ltd",
+    "nature": "civil",
+    "amount_involved_paise": 250000,
+    "status": "Pending — complaint alleging product deficiency filed by an end-user farmer."
+  }
+]
