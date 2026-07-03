@@ -25,7 +25,7 @@ The full version, in pipeline order:
 7. **Validation suite** — gap check (schema vs. fact store), contradiction check (numeric/entity consistency across sections — "page 40 disagrees with page 12"), boilerplate detector, and an **adversarial examiner agent** that plays exchange reviewer and raises objections until the draft survives them.
 8. **Role-aware gap report** — every gap is routed: *promoter-fixable*, *needs your auditor* (e.g. restated financial statements, which the tool can ingest and format but never generate), or *needs your merchant banker* (e.g. due-diligence certificate). This routing is what makes "substantially complete" an honest, defensible claim.
 9. **Banker certification workflow** — a dashboard with per-section review states (`draft → reviewed → certified`), an audit trail of banker edits, and a **certification lock**: the exchange-ready package cannot be exported until every blocker-severity section is certified. This is a feature demanded by the problem statement, not an apology.
-10. **Document assembly** — python-docx produces the formatted draft DRHP **and the DRHP-stage abridged prospectus**. ⚠️ Verify against the March-2026 ICDR amendment whether the second deliverable is still the "abridged prospectus" (introduced by the March 2025 amendments) or the "Offer Document Summary" proposed in SEBI's November 2025 consultation paper — pin whichever is current and cite it in the schema.
+10. **Document assembly** — python-docx produces the formatted draft DRHP **and the DRHP-stage draft abridged prospectus**. ✅ RESOLVED (2026-07-03): the ICDR (Amendment) Regulations, 2026 (effective 2026-03-21) omit the "Offer Document Summary" (old Sch. VI Part A para 4) and mandate a **draft abridged prospectus per Schedule VI Part E** filed with the draft offer document (Reg. 246(3)). See `data/regulation/MANIFEST.md`.
 11. **Quantitative coverage score** — completeness measured per-section against real filed SME DRHPs, with auditor-only content explicitly marked out-of-scope rather than silently counted. Judges get evidence, not a claim.
 
 ## Domain Glossary
@@ -36,8 +36,8 @@ The full version, in pipeline order:
 | ICDR | SEBI (Issue of Capital and Disclosure Requirements) Regulations, 2018 — governs public issues |
 | Chapter IX | The ICDR chapter governing SME IPOs (eligibility, disclosures, listing on SME exchanges) |
 | DRHP / RHP | Draft Red Herring Prospectus (filed for review/public comment) / Red Herring Prospectus (updated, pre-issue) |
-| Abridged prospectus | Standardized summary of the offer document; a DRHP-stage version was mandated by the March 2025 ICDR amendments |
-| Offer Document Summary | Proposed replacement for the abridged prospectus (SEBI consultation, Nov 2025) — check current status |
+| Abridged prospectus | Standardized summary of the offer document (Sch. VI Part E); the 2026 ICDR amendment mandates a **draft** abridged prospectus with the DRHP (Reg. 246(3)) |
+| Offer Document Summary | Former Sch. VI Part A para (4) — **omitted by the 2026 ICDR amendment** in favour of the abridged prospectus |
 | SME Exchange | BSE SME and NSE Emerge — dedicated listing platforms for SME IPOs |
 | Merchant banker / LM | SEBI-registered intermediary (Lead Manager) who conducts due diligence and certifies the offer document |
 | Restated financials | Financial statements restated per ICDR and audited by a peer-reviewed auditor — mandatory DRHP content that only an auditor can produce |
@@ -155,7 +155,7 @@ Rules:
 - **The litigation lookup is mocked** — there is no clean free API over Indian court records; a real integration means an adapter behind the existing connector protocol.
 - **The checklist schema is human-reviewed but not legally certified.** It's a faithful encoding of the regulation, not legal advice.
 - **Extraction can misread documents.** Mitigated (not eliminated) by mandatory promoter confirmation against the highlighted source and by clickable citations for the banker's review.
-- **Regulation version is pinned as of build date.** The abridged-prospectus vs. Offer-Document-Summary question (Nov 2025 consultation → 2026 amendments) must be re-verified against the latest ICDR text before the demo.
+- **Regulation version is pinned as of build date** (ICDR as amended through 2026-03-21; see `data/regulation/MANIFEST.md`). Any later amendment requires regenerating the schema.
 - **The output is a draft, not a filing.** It becomes submittable only after merchant banker due diligence and certification — this is by design and matches the problem statement.
 
 ## What NOT to Do
