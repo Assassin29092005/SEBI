@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     groq_api_key: str = ""
     llm_provider: str = "gemini"
+    groq_model: str = "llama-3.3-70b-versatile"
+    gemini_model: str = "gemini-2.5-flash"
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000
