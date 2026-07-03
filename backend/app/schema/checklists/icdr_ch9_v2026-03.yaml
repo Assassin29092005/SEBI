@@ -1,0 +1,161 @@
+# Checklist schema — SEBI ICDR Chapter IX disclosure requirements for SME IPOs.
+#
+# ⚠️ Every entry below must be human-reviewed against the regulation text in
+# data/regulation/ before it ships — this is legal-adjacent content.
+# ⚠️ TODO: verify against the March-2026 ICDR amendment whether the second
+# deliverable is still the "abridged prospectus" or the proposed
+# "Offer Document Summary" (Nov-2025 consultation). Pin whichever is current.
+
+header:
+  regulation: "SEBI (Issue of Capital and Disclosure Requirements) (ICDR) Regulations, 2018 — Chapter IX (SME IPOs), disclosures per Schedule VI Part A as applied by Ch. IX"
+  amended_through: "2026-03-01"   # TODO: confirm exact amendment date before demo
+  schema_version: "0.1.0"
+  reviewed_by_human: false        # flip to true only after full human review
+
+entries:
+  # ── Capital Structure ────────────────────────────────────────────────────
+  - id: capital_structure.share_capital_history
+    clause_ref: "ICDR Sch. VI Part A (as applied by Ch. IX), para 6"   # TODO verify para
+    section: "Capital Structure"
+    title: "History of equity share capital"
+    description: >
+      Build-up of share capital since incorporation: date of allotment, number
+      of shares, face value, issue price, nature of consideration, nature of
+      allotment (bonus/rights/preferential/etc.).
+    applicability: always
+    required_facts:
+      - share_allotments[]
+    responsible_role: promoter
+    severity: blocker
+    output_targets: [drhp, abridged]
+
+  - id: capital_structure.promoter_shareholding
+    clause_ref: "ICDR Sch. VI Part A (as applied by Ch. IX), para 6"   # TODO verify para
+    section: "Capital Structure"
+    title: "Promoter and promoter group shareholding"
+    description: >
+      Pre- and post-issue shareholding of promoters and promoter group,
+      including lock-in details per Ch. IV as applied to SME issues.
+    applicability: always
+    required_facts:
+      - promoters[]
+      - promoter_shareholding[]
+    responsible_role: promoter
+    severity: blocker
+    output_targets: [drhp, abridged]
+
+  # ── Objects of the Issue ─────────────────────────────────────────────────
+  - id: objects.use_of_proceeds
+    clause_ref: "ICDR Sch. VI Part A (as applied by Ch. IX), para 7"   # TODO verify para
+    section: "Objects of the Issue"
+    title: "Use of proceeds"
+    description: >
+      Itemised deployment of issue proceeds. GCP capped at lower of 15% or
+      ₹10 cr for SME IPOs; OFS capped at 20% (2025 amendments).
+    applicability: always
+    required_facts:
+      - issue_size_paise
+      - objects_of_issue[]
+      - gcp_amount_paise
+    responsible_role: promoter
+    severity: blocker
+    output_targets: [drhp, abridged]
+
+  # ── Financial Information ────────────────────────────────────────────────
+  - id: financials.restated_statements
+    clause_ref: "ICDR Sch. VI Part A (as applied by Ch. IX), para 11"  # TODO verify para
+    section: "Financial Information"
+    title: "Restated financial statements"
+    description: >
+      Restated financials per ICDR, audited by a peer-reviewed auditor.
+      AUDITOR-ONLY content: the tool ingests and formats these — it never
+      generates them. Marked out-of-scope in the coverage score.
+    applicability: always
+    required_facts:
+      - restated_financials_upload
+    responsible_role: auditor
+    severity: blocker
+    output_targets: [drhp, abridged]
+
+  # ── Risk Factors ─────────────────────────────────────────────────────────
+  - id: risk_factors.material_risks
+    clause_ref: "ICDR Sch. VI Part A (as applied by Ch. IX), para 4"   # TODO verify para
+    section: "Risk Factors"
+    title: "Material risk factors"
+    description: >
+      Issuer-specific and issue-specific risks in descending order of
+      materiality; no generic boilerplate (the boilerplate detector enforces
+      this).
+    applicability: always
+    required_facts:
+      - business_description
+      - customer_concentration
+      - material_litigation[]
+    responsible_role: promoter
+    severity: blocker
+    output_targets: [drhp, abridged]
+
+  # ── Legal & Other Information ────────────────────────────────────────────
+  - id: legal.outstanding_litigation
+    clause_ref: "ICDR Sch. VI Part A (as applied by Ch. IX), para 14"  # TODO verify para
+    section: "Legal and Other Information"
+    title: "Outstanding litigation and material developments"
+    description: >
+      Material outstanding legal proceedings involving the issuer, promoters,
+      and directors, above the materiality thresholds adopted by the board.
+    applicability: always
+    required_facts:
+      - material_litigation[]
+      - materiality_policy
+    responsible_role: promoter
+    severity: blocker
+    output_targets: [drhp, abridged]
+
+  # ── Stubbed sections (coverage accounting only — encode before demo) ─────
+  - id: general.definitions_abbreviations
+    clause_ref: "ICDR Sch. VI Part A, para 1"   # TODO verify + encode
+    section: "General"
+    title: "Definitions and abbreviations"
+    description: "Stub — to be fully encoded."
+    applicability: always
+    required_facts: []
+    responsible_role: system
+    severity: minor
+    output_targets: [drhp]
+    stub: true
+
+  - id: management.board_and_kmp
+    clause_ref: "ICDR Sch. VI Part A, para 10"  # TODO verify + encode
+    section: "Our Management"
+    title: "Board of directors and KMP"
+    description: "Stub — to be fully encoded."
+    applicability: always
+    required_facts: []
+    responsible_role: promoter
+    severity: material
+    output_targets: [drhp, abridged]
+    stub: true
+
+  - id: business.overview
+    clause_ref: "ICDR Sch. VI Part A, para 9"   # TODO verify + encode
+    section: "Our Business"
+    title: "Business overview"
+    description: "Stub — to be fully encoded."
+    applicability: always
+    required_facts: []
+    responsible_role: promoter
+    severity: material
+    output_targets: [drhp, abridged]
+    stub: true
+
+  - id: rpt.related_party_transactions
+    clause_ref: "ICDR Sch. VI Part A, para 11A" # TODO verify + encode
+    section: "Financial Information"
+    title: "Related party transactions"
+    description: "Stub — high-scrutiny area, to be fully encoded."
+    applicability: always
+    required_facts: []
+    responsible_role: promoter
+    severity: material
+    output_targets: [drhp]
+    stub: true
