@@ -1,0 +1,347 @@
+# UX copy only — the regulation clause_ref and description remain the schema's.
+# Hindi copy is demo-grade UX translation, human-reviewed for the demo only.
+#
+# Structure:
+#   <fact_key>:
+#     en: {prompt: "...", help: "..."}
+#     hi: {prompt: "...", help: "..."}
+#
+# One entry per promoter-role, non-stub required_fact key. Prompts are written
+# in plain first-time-issuer language: no jargon, no clause numbers, no acronyms
+# without a short expansion.
+
+board_of_directors[]:
+  en:
+    prompt: "Please list the members of your board of directors."
+    help: "For each director include full name, role (chairperson, whole-time, independent, etc.), date of appointment, and DIN (Director Identification Number)."
+  hi:
+    prompt: "कृपया अपने निदेशक मंडल के सदस्यों की सूची दें।"
+    help: "प्रत्येक निदेशक के लिए पूरा नाम, भूमिका (अध्यक्ष, पूर्णकालिक, स्वतंत्र आदि), नियुक्ति की तारीख और DIN (निदेशक पहचान संख्या) शामिल करें।"
+
+business_description:
+  en:
+    prompt: "In one paragraph, what does your company do?"
+    help: "A plain-language description of your business — what you sell, who you sell it to, and how you make money."
+  hi:
+    prompt: "एक पैराग्राफ में बताइए कि आपकी कंपनी क्या करती है?"
+    help: "अपने व्यवसाय का सरल भाषा में विवरण दें — आप क्या बेचते हैं, किसे बेचते हैं और कैसे कमाई करते हैं।"
+
+compliance_officer:
+  en:
+    prompt: "Who is the compliance officer for the issue?"
+    help: "The person responsible for compliance with SEBI listing rules. Include full name, designation, and contact details."
+  hi:
+    prompt: "इस निर्गम के लिए अनुपालन अधिकारी कौन है?"
+    help: "SEBI लिस्टिंग नियमों के अनुपालन के लिए ज़िम्मेदार व्यक्ति। पूरा नाम, पदनाम और संपर्क विवरण दें।"
+
+contingent_liabilities_summary:
+  en:
+    prompt: "Summarise your contingent liabilities as of the latest balance sheet date."
+    help: "Contingent liabilities are obligations that may become payable depending on a future event (guarantees, disputed tax demands, pending lawsuits). Copy the figures from your restated financial statements."
+  hi:
+    prompt: "नवीनतम बैलेंस शीट की तारीख तक अपनी आकस्मिक देनदारियों का सारांश दीजिए।"
+    help: "आकस्मिक देनदारियाँ वे दायित्व हैं जो किसी भविष्य की घटना पर देय हो सकते हैं (गारंटी, विवादित कर माँग, लंबित मुकदमे)। आँकड़े अपने पुनःप्रस्तुत वित्तीय विवरणों से लें।"
+
+creditor_dues_summary:
+  en:
+    prompt: "Summarise dues owed to your creditors."
+    help: "Include amounts owed to trade creditors, split by micro/small enterprises and others, plus any dues that are overdue. Use figures from your latest restated financials."
+  hi:
+    prompt: "अपने लेनदारों को देय राशियों का सारांश दीजिए।"
+    help: "व्यापार लेनदारों को देय राशियाँ शामिल करें, सूक्ष्म/लघु उद्यमों और अन्य के बीच अलग करके, तथा कोई भी बकाया देय राशियाँ। नवीनतम पुनःप्रस्तुत वित्तीय विवरणों के आँकड़ों का उपयोग करें।"
+
+customer_concentration:
+  en:
+    prompt: "How dependent is your revenue on your top customers?"
+    help: "State what percentage of revenue came from your top 1, top 5, and top 10 customers in the most recent year. Name them if a single customer accounts for more than 10 percent of revenue."
+  hi:
+    prompt: "आपका राजस्व आपके शीर्ष ग्राहकों पर कितना निर्भर है?"
+    help: "नवीनतम वर्ष में शीर्ष 1, शीर्ष 5 और शीर्ष 10 ग्राहकों से आए राजस्व का प्रतिशत बताइए। यदि कोई एक ग्राहक राजस्व का 10 प्रतिशत से अधिक देता है तो उनका नाम लिखिए।"
+
+director_interests:
+  en:
+    prompt: "Do any of your directors have personal interests to disclose?"
+    help: "Disclose shareholding by each director, related-party contracts, any benefits beyond regular remuneration, and other companies where they hold directorships."
+  hi:
+    prompt: "क्या आपके किसी निदेशक के व्यक्तिगत हित प्रकट करने योग्य हैं?"
+    help: "प्रत्येक निदेशक की शेयरधारिता, संबंधित पक्ष अनुबंध, नियमित पारिश्रमिक के अलावा कोई लाभ, और अन्य कंपनियों में उनकी निदेशकता प्रकट कीजिए।"
+
+eligibility_confirmation:
+  en:
+    prompt: "Confirm that your company meets the SME IPO eligibility conditions."
+    help: "The eligibility gate has already checked most conditions. Here you confirm the remaining self-declared items (no wilful defaulter status, no fugitive economic offender promoter, etc.)."
+  hi:
+    prompt: "पुष्टि कीजिए कि आपकी कंपनी SME IPO पात्रता शर्तों को पूरा करती है।"
+    help: "पात्रता जाँच अधिकांश शर्तें पहले ही देख चुकी है। यहाँ आप शेष स्व-घोषित मदों की पुष्टि करते हैं (कोई जानबूझकर चूककर्ता स्थिति नहीं, कोई भगोड़ा आर्थिक अपराधी प्रवर्तक नहीं, आदि)।"
+
+gcp_amount_paise:
+  en:
+    prompt: "How much of the issue proceeds will you use for General Corporate Purposes?"
+    help: "General Corporate Purposes (GCP) is the flexible bucket for unspecified needs. For SME IPOs it is capped at the lower of 15 percent of issue size or Rs 10 crore. Enter the amount in rupees."
+  hi:
+    prompt: "निर्गम की प्राप्तियों में से कितनी राशि आप सामान्य कॉर्पोरेट उद्देश्यों के लिए उपयोग करेंगे?"
+    help: "सामान्य कॉर्पोरेट उद्देश्य (GCP) अनिर्दिष्ट आवश्यकताओं के लिए लचीली मद है। SME IPO के लिए यह निर्गम आकार के 15 प्रतिशत या 10 करोड़ रुपये में से जो कम हो, तक सीमित है। राशि रुपये में दर्ज कीजिए।"
+
+group_companies[]:
+  en:
+    prompt: "List the group companies that are related to your issuer."
+    help: "Group companies are entities under common control or with significant common shareholders. For each, provide name, nature of business, and the basis on which it qualifies as a group company."
+  hi:
+    prompt: "उन समूह कंपनियों की सूची दें जो आपके निर्गमकर्ता से संबंधित हैं।"
+    help: "समूह कंपनियाँ सामान्य नियंत्रण या महत्वपूर्ण साझा शेयरधारकों वाली संस्थाएँ हैं। प्रत्येक के लिए नाम, व्यवसाय की प्रकृति और वह आधार जिस पर वह समूह कंपनी मानी जाती है, दीजिए।"
+
+incorporation_details:
+  en:
+    prompt: "When and where was your company incorporated?"
+    help: "Include the date of incorporation, the state, the original name (if it has been changed), and the Corporate Identification Number (CIN)."
+  hi:
+    prompt: "आपकी कंपनी कब और कहाँ निगमित हुई थी?"
+    help: "निगमन की तारीख, राज्य, मूल नाम (यदि बदला गया है), और कॉर्पोरेट पहचान संख्या (CIN) शामिल कीजिए।"
+
+industry_overview:
+  en:
+    prompt: "Give a short overview of the industry your company operates in."
+    help: "Describe the market size, growth trends, the main players, and where your company fits in. Cite the source of any industry statistics you quote."
+  hi:
+    prompt: "उस उद्योग का संक्षिप्त परिचय दीजिए जिसमें आपकी कंपनी काम करती है।"
+    help: "बाज़ार का आकार, वृद्धि की प्रवृत्तियाँ, प्रमुख कंपनियाँ, और उसमें आपकी कंपनी का स्थान बताइए। जिन उद्योग आँकड़ों का उल्लेख करें उनका स्रोत दीजिए।"
+
+issue_authorisations:
+  en:
+    prompt: "Which board and shareholder approvals have you obtained for this issue?"
+    help: "Provide the dates and resolution numbers of the board resolution and the special resolution of shareholders authorising the IPO."
+  hi:
+    prompt: "इस निर्गम के लिए आपने कौन-कौन सी बोर्ड और शेयरधारक अनुमतियाँ प्राप्त की हैं?"
+    help: "IPO को अधिकृत करने वाले बोर्ड प्रस्ताव और शेयरधारकों के विशेष प्रस्ताव की तारीखें और प्रस्ताव संख्याएँ दीजिए।"
+
+issue_size_paise:
+  en:
+    prompt: "What is the total size of the issue?"
+    help: "The total amount you plan to raise through the IPO, in rupees. Include both the fresh issue and any Offer for Sale component."
+  hi:
+    prompt: "इस निर्गम का कुल आकार कितना है?"
+    help: "IPO के माध्यम से आप जो कुल राशि जुटाने की योजना बना रहे हैं, रुपये में। नया निर्गम और कोई बिक्री प्रस्ताव (OFS) घटक दोनों शामिल करें।"
+
+issuer_identity:
+  en:
+    prompt: "What is the legal identity of the issuer company?"
+    help: "Include the full legal name, corporate identification number (CIN), permanent account number (PAN), and any past names."
+  hi:
+    prompt: "निर्गमकर्ता कंपनी की क़ानूनी पहचान क्या है?"
+    help: "पूरा क़ानूनी नाम, कॉर्पोरेट पहचान संख्या (CIN), स्थायी खाता संख्या (PAN), और कोई भी पिछले नाम शामिल कीजिए।"
+
+kmp[]:
+  en:
+    prompt: "Please list your Key Managerial Personnel."
+    help: "Key Managerial Personnel (KMP) typically include the CEO, CFO, and Company Secretary. For each, provide full name, designation, date of joining, and qualifications."
+  hi:
+    prompt: "कृपया अपने प्रमुख प्रबंधकीय कर्मियों की सूची दीजिए।"
+    help: "प्रमुख प्रबंधकीय कर्मी (KMP) आमतौर पर CEO, CFO और कंपनी सचिव होते हैं। प्रत्येक के लिए पूरा नाम, पदनाम, कार्यभार ग्रहण करने की तारीख और योग्यताएँ दीजिए।"
+
+lead_managers[]:
+  en:
+    prompt: "Who are the lead managers to the issue?"
+    help: "Lead managers (also called merchant bankers) run the issue process and certify the offer document. Provide the SEBI-registered name of each, along with contact details."
+  hi:
+    prompt: "इस निर्गम के लीड मैनेजर कौन हैं?"
+    help: "लीड मैनेजर (जिन्हें मर्चेंट बैंकर भी कहा जाता है) निर्गम प्रक्रिया चलाते हैं और प्रस्ताव दस्तावेज़ प्रमाणित करते हैं। प्रत्येक का SEBI-पंजीकृत नाम तथा संपर्क विवरण दीजिए।"
+
+licences_approvals[]:
+  en:
+    prompt: "List the material licences and approvals your business relies on."
+    help: "Include factory licences, environmental clearances, GST registrations, sector-specific regulatory approvals — anything without which the business could not run. For each, provide the issuing authority and validity."
+  hi:
+    prompt: "अपने व्यवसाय के लिए आवश्यक भौतिक लाइसेंस और अनुमोदन सूचीबद्ध कीजिए।"
+    help: "फ़ैक्ट्री लाइसेंस, पर्यावरण मंज़ूरी, GST पंजीकरण, क्षेत्र-विशिष्ट नियामक अनुमोदन — वह सब कुछ जिसके बिना व्यवसाय नहीं चल सकता। प्रत्येक के लिए जारीकर्ता प्राधिकरण और वैधता दीजिए।"
+
+major_events[]:
+  en:
+    prompt: "List the major milestones and events in your company's history."
+    help: "Incorporation, product launches, acquisitions, major funding rounds, name changes, capacity expansions. For each event give a date and a one-line description."
+  hi:
+    prompt: "अपनी कंपनी के इतिहास के प्रमुख मील के पत्थर और घटनाएँ सूचीबद्ध कीजिए।"
+    help: "निगमन, उत्पाद लॉन्च, अधिग्रहण, प्रमुख निधीयन दौर, नाम परिवर्तन, क्षमता विस्तार। प्रत्येक घटना के लिए तारीख और एक-पंक्ति का विवरण दीजिए।"
+
+material_litigation[]:
+  en:
+    prompt: "List all material legal proceedings involving the company, its directors, or its promoters."
+    help: "Include criminal, tax, regulatory and civil matters above your materiality threshold. For each: parties, forum, amount involved, current status, and a plain-language summary."
+  hi:
+    prompt: "कंपनी, उसके निदेशकों या प्रवर्तकों से जुड़ी सभी भौतिक क़ानूनी कार्यवाहियाँ सूचीबद्ध कीजिए।"
+    help: "आपकी भौतिकता सीमा से ऊपर आपराधिक, कर, नियामक और दीवानी मामलों को शामिल कीजिए। प्रत्येक के लिए: पक्षकार, मंच, शामिल राशि, वर्तमान स्थिति, और सरल-भाषा में सारांश।"
+
+material_properties[]:
+  en:
+    prompt: "List the material immovable properties the company owns or leases."
+    help: "For each property give a description, location, size, whether owned or leased, and (if leased) the tenure. Skip inconsequential properties."
+  hi:
+    prompt: "कंपनी की स्वामित्व वाली या पट्टे पर ली गई भौतिक अचल संपत्तियाँ सूचीबद्ध कीजिए।"
+    help: "प्रत्येक संपत्ति के लिए विवरण, स्थान, आकार, स्वामित्व या पट्टे की स्थिति, और (यदि पट्टे पर हो तो) अवधि दीजिए। महत्वहीन संपत्तियाँ छोड़ दीजिए।"
+
+materiality_policy:
+  en:
+    prompt: "What is your materiality policy for identifying litigation and other disclosures?"
+    help: "State the monetary and qualitative thresholds you use to decide which items are 'material' enough to disclose. This policy must be board-approved."
+  hi:
+    prompt: "मुक़दमेबाज़ी और अन्य प्रकटीकरणों की पहचान के लिए आपकी भौतिकता नीति क्या है?"
+    help: "वे मौद्रिक और गुणात्मक सीमाएँ बताइए जिनका उपयोग यह तय करने के लिए किया जाता है कि कौन-सी मदें प्रकट करने के लिए पर्याप्त 'भौतिक' हैं। यह नीति बोर्ड द्वारा अनुमोदित होनी चाहिए।"
+
+means_of_finance:
+  en:
+    prompt: "How will each object of the issue be funded, apart from the IPO proceeds?"
+    help: "For every object, show the total cost and the sources of finance (IPO proceeds, internal accruals, debt already tied up, promoter contribution). SEBI requires 75 percent of amounts not covered by IPO proceeds to be firmly arranged."
+  hi:
+    prompt: "निर्गम के प्रत्येक उद्देश्य को IPO प्राप्तियों के अलावा और कैसे वित्तपोषित किया जाएगा?"
+    help: "प्रत्येक उद्देश्य के लिए कुल लागत और वित्त के स्रोत (IPO प्राप्तियाँ, आंतरिक संचय, पहले से तय ऋण, प्रवर्तक योगदान) दिखाइए। SEBI के अनुसार IPO प्राप्तियों से न कवर होने वाली राशि का 75 प्रतिशत ठोस रूप से व्यवस्थित होना चाहिए।"
+
+negative_cash_flow_years:
+  en:
+    prompt: "In which of the last few years did the company report negative cash flow?"
+    help: "State the financial years in which cash flow from operations, investing, or financing was negative — and briefly explain why."
+  hi:
+    prompt: "पिछले कुछ वर्षों में किन वर्षों में कंपनी ने ऋणात्मक नक़दी प्रवाह दर्ज किया?"
+    help: "उन वित्त वर्षों को बताइए जिनमें संचालन, निवेश या वित्तपोषण से नक़दी प्रवाह ऋणात्मक था — और संक्षेप में कारण बताइए।"
+
+objects_of_issue[]:
+  en:
+    prompt: "What will you use the IPO proceeds for?"
+    help: "List each object separately (e.g. capex for a new plant, working capital, debt repayment, general corporate purposes). Give the amount for each and a short justification."
+  hi:
+    prompt: "आप IPO की प्राप्तियों का उपयोग किसलिए करेंगे?"
+    help: "प्रत्येक उद्देश्य को अलग-अलग सूचीबद्ध कीजिए (जैसे नए संयंत्र के लिए पूंजीगत व्यय, कार्यशील पूंजी, ऋण चुकौती, सामान्य कॉर्पोरेट उद्देश्य)। प्रत्येक के लिए राशि और एक संक्षिप्त औचित्य दीजिए।"
+
+peer_comparison[]:
+  en:
+    prompt: "List a few peer listed companies to compare your issuer against."
+    help: "Pick 3–5 listed companies in the same or similar business. For each include the name, price-to-earnings ratio, return on net worth, and revenue for the latest year."
+  hi:
+    prompt: "अपने निर्गमकर्ता की तुलना के लिए कुछ सूचीबद्ध समकक्ष कंपनियाँ बताइए।"
+    help: "उसी या समान व्यवसाय की 3–5 सूचीबद्ध कंपनियाँ चुनिए। प्रत्येक के लिए नाम, मूल्य-आय अनुपात, नेट वर्थ पर प्रतिफल और नवीनतम वर्ष का राजस्व शामिल कीजिए।"
+
+price_band:
+  en:
+    prompt: "What price band or fixed price do you propose for the issue?"
+    help: "For a fixed-price issue give the issue price. For a book-built issue give the floor price and cap. Face value of the share should also be stated."
+  hi:
+    prompt: "निर्गम के लिए आप कौन-सा मूल्य दायरा या नियत मूल्य प्रस्तावित कर रहे हैं?"
+    help: "नियत-मूल्य निर्गम के लिए निर्गम मूल्य दीजिए। बुक-बिल्ट निर्गम के लिए न्यूनतम (फ़्लोर) और अधिकतम (कैप) मूल्य दीजिए। शेयर का अंकित मूल्य भी बताइए।"
+
+products_services[]:
+  en:
+    prompt: "What products or services does your company offer?"
+    help: "List each product or service line separately. For each, describe what it does, who buys it, and roughly what share of revenue it contributes."
+  hi:
+    prompt: "आपकी कंपनी कौन-से उत्पाद या सेवाएँ प्रदान करती है?"
+    help: "प्रत्येक उत्पाद या सेवा पंक्ति को अलग-अलग सूचीबद्ध कीजिए। प्रत्येक के लिए बताइए कि वह क्या करती है, कौन ख़रीदता है और लगभग कितना राजस्व-हिस्सा उससे आता है।"
+
+promoter_group_entities[]:
+  en:
+    prompt: "List the entities that form your promoter group."
+    help: "Promoter group includes relatives of promoters and companies/HUFs/trusts controlled by them. For each, give the name and the relationship basis on which they are included."
+  hi:
+    prompt: "उन संस्थाओं की सूची दीजिए जो आपके प्रवर्तक समूह का हिस्सा हैं।"
+    help: "प्रवर्तक समूह में प्रवर्तकों के रिश्तेदार और उनके द्वारा नियंत्रित कंपनियाँ/HUF/ट्रस्ट शामिल हैं। प्रत्येक के लिए नाम और वह संबंध-आधार दीजिए जिस पर उन्हें शामिल किया गया है।"
+
+promoter_interests:
+  en:
+    prompt: "What interests do your promoters have in the company beyond their shareholding?"
+    help: "Disclose contracts, properties leased to the company, salaries/commissions, and any personal benefit derived from the company beyond shareholding-based returns."
+  hi:
+    prompt: "आपके प्रवर्तकों का कंपनी में उनकी शेयरधारिता के अलावा और क्या हित है?"
+    help: "अनुबंध, कंपनी को पट्टे पर दी गई संपत्तियाँ, वेतन/कमीशन, तथा शेयरधारिता आधारित प्रतिफलों के अलावा कंपनी से प्राप्त कोई भी व्यक्तिगत लाभ प्रकट कीजिए।"
+
+promoter_shareholding[]:
+  en:
+    prompt: "How many shares does each promoter hold?"
+    help: "For every promoter list the number of shares held, percentage of paid-up capital, and any pledged/encumbered portion."
+  hi:
+    prompt: "प्रत्येक प्रवर्तक के पास कितने शेयर हैं?"
+    help: "प्रत्येक प्रवर्तक के लिए धारित शेयरों की संख्या, चुकता पूँजी का प्रतिशत, और कोई गिरवी/भारित हिस्सा सूचीबद्ध कीजिए।"
+
+promoters[]:
+  en:
+    prompt: "Who are the promoters of the company?"
+    help: "For each promoter provide full name, PAN, date of birth, educational qualifications, past business experience, and DIN if they are also a director."
+  hi:
+    prompt: "कंपनी के प्रवर्तक कौन हैं?"
+    help: "प्रत्येक प्रवर्तक के लिए पूरा नाम, PAN, जन्म तिथि, शैक्षिक योग्यताएँ, पूर्व व्यावसायिक अनुभव, और यदि निदेशक भी हैं तो DIN दीजिए।"
+
+reg228_declarations:
+  en:
+    prompt: "Confirm the promoter- and director-level declarations required by Regulation 228."
+    help: "Regulation 228 requires declarations that no promoter or director is a wilful defaulter, fugitive economic offender, or debarred from the securities market. Confirm each declaration explicitly."
+  hi:
+    prompt: "विनियम 228 के अंतर्गत आवश्यक प्रवर्तक- और निदेशक-स्तर की घोषणाओं की पुष्टि कीजिए।"
+    help: "विनियम 228 के लिए यह घोषणा आवश्यक है कि कोई भी प्रवर्तक या निदेशक जानबूझकर चूककर्ता, भगोड़ा आर्थिक अपराधी, या प्रतिभूति बाज़ार से प्रतिबंधित नहीं है। प्रत्येक घोषणा की स्पष्ट पुष्टि कीजिए।"
+
+registered_office:
+  en:
+    prompt: "What is the address of your registered office?"
+    help: "Give the full postal address of your currently registered office. If the office has been shifted in the past, note that separately in the wizard's 'history' step."
+  hi:
+    prompt: "आपके पंजीकृत कार्यालय का पता क्या है?"
+    help: "अपने वर्तमान पंजीकृत कार्यालय का पूरा डाक पता दीजिए। यदि कार्यालय अतीत में स्थानांतरित हुआ है, तो उसे विज़ार्ड के 'इतिहास' चरण में अलग से नोट कीजिए।"
+
+registrar_to_issue:
+  en:
+    prompt: "Who is the Registrar to the Issue?"
+    help: "The Registrar handles allotments and refunds. Provide the SEBI-registered entity name, address, SEBI registration number, and contact person."
+  hi:
+    prompt: "इस निर्गम का रजिस्ट्रार कौन है?"
+    help: "रजिस्ट्रार आवंटन और वापसी संभालता है। SEBI-पंजीकृत संस्था का नाम, पता, SEBI पंजीकरण संख्या, और संपर्क व्यक्ति दीजिए।"
+
+restated_financials_upload:
+  en:
+    prompt: "Please upload your restated financial statements."
+    help: "Restated financials are prepared by your peer-reviewed statutory auditor per ICDR. Upload the signed PDF; the tool will format and reference figures from it but never generate them."
+  hi:
+    prompt: "कृपया अपने पुनःप्रस्तुत वित्तीय विवरण अपलोड कीजिए।"
+    help: "पुनःप्रस्तुत वित्तीय विवरण आपके सहकर्मी-समीक्षित सांविधिक लेखा-परीक्षक द्वारा ICDR के अनुसार तैयार किए जाते हैं। हस्ताक्षरित PDF अपलोड कीजिए; उपकरण उससे आँकड़े स्वरूपित और संदर्भित करेगा लेकिन कभी उत्पन्न नहीं करेगा।"
+
+rpt_summary:
+  en:
+    prompt: "Summarise your material related-party transactions for the last three years."
+    help: "Related-party transactions (RPTs) involve promoters, group companies, KMPs, and their relatives. Give the counterparty, nature, and amount for each material transaction."
+  hi:
+    prompt: "पिछले तीन वर्षों के अपने भौतिक संबंधित पक्ष लेनदेन का सारांश दीजिए।"
+    help: "संबंधित पक्ष लेनदेन (RPT) में प्रवर्तक, समूह कंपनियाँ, KMP और उनके रिश्तेदार शामिल होते हैं। प्रत्येक भौतिक लेनदेन के लिए प्रतिपक्ष, प्रकृति और राशि दीजिए।"
+
+selected_financial_summary:
+  en:
+    prompt: "Provide a short summary of your key financials for the last three years."
+    help: "Include revenue from operations, EBITDA, profit after tax, net worth, and total borrowings for each of the last three financial years. Numbers must match your restated financials."
+  hi:
+    prompt: "पिछले तीन वर्षों के अपने प्रमुख वित्तीय आँकड़ों का संक्षिप्त सारांश दीजिए।"
+    help: "पिछले तीन वित्त वर्षों में से प्रत्येक के लिए संचालन से राजस्व, EBITDA, कर पश्चात लाभ, नेट वर्थ, और कुल ऋण शामिल कीजिए। आँकड़े आपके पुनःप्रस्तुत वित्तीय विवरणों से मेल खाने चाहिए।"
+
+share_allotments[]:
+  en:
+    prompt: "Please list every allotment of equity shares since the company was incorporated."
+    help: "For each allotment give the date, number of shares, face value, issue price, nature of consideration (cash / bonus / conversion), and the nature of allotment (e.g. rights, preferential, ESOP)."
+  hi:
+    prompt: "कृपया कंपनी के निगमन के बाद इक्विटी शेयरों के प्रत्येक आवंटन की सूची दीजिए।"
+    help: "प्रत्येक आवंटन के लिए तारीख, शेयरों की संख्या, अंकित मूल्य, निर्गम मूल्य, प्रतिफल की प्रकृति (नक़द / बोनस / परिवर्तन), और आवंटन की प्रकृति (जैसे राइट्स, अधिमानी, ESOP) दीजिए।"
+
+sme_exchange:
+  en:
+    prompt: "Which SME exchange will you list on?"
+    help: "The two SME platforms are BSE SME and NSE Emerge. Pick one — you cannot list on both from the same DRHP."
+  hi:
+    prompt: "आप किस SME एक्सचेंज पर सूचीबद्ध होंगे?"
+    help: "दो SME प्लेटफ़ॉर्म हैं BSE SME और NSE Emerge। एक चुनिए — आप एक ही DRHP से दोनों पर सूचीबद्ध नहीं हो सकते।"
+
+statutory_auditor:
+  en:
+    prompt: "Who is your statutory auditor?"
+    help: "Provide the firm name, registration number with the Institute of Chartered Accountants of India, and confirm they hold the peer-review certificate required for ICDR filings."
+  hi:
+    prompt: "आपके सांविधिक लेखा-परीक्षक कौन हैं?"
+    help: "फर्म का नाम, भारतीय सनदी लेखाकार संस्थान (ICAI) के साथ पंजीकरण संख्या दीजिए, और पुष्टि कीजिए कि वे ICDR फाइलिंग के लिए आवश्यक सहकर्मी-समीक्षा प्रमाणपत्र रखते हैं।"
+
+subsidiaries[]:
+  en:
+    prompt: "List the subsidiaries of the company."
+    help: "For each subsidiary give name, country of incorporation, percentage of shareholding held by the issuer, and the nature of business."
+  hi:
+    prompt: "कंपनी की सहायक कंपनियों की सूची दीजिए।"
+    help: "प्रत्येक सहायक कंपनी के लिए नाम, निगमन का देश, निर्गमकर्ता द्वारा धारित शेयरधारिता का प्रतिशत, और व्यवसाय की प्रकृति दीजिए।"

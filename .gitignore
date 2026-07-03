@@ -17,6 +17,7 @@ frontend/dist/
 
 # Generated output
 output/
+out/
 *.docx
 !data/demo_company/**/*.docx
 

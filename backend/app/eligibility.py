@@ -87,7 +87,10 @@ def evaluate(data: EligibilityInput) -> EligibilityReport:
     if data.is_wilful_defaulter_or_fraudulent_borrower:
         items.append(
             ReadinessItem(
-                criterion="Issuer/promoters/directors not wilful defaulters or fraudulent borrowers",
+                criterion=(
+                    "Issuer/promoters/directors not wilful defaulters or "
+                    "fraudulent borrowers"
+                ),
                 clause_ref="ICDR Reg. 228(c)",
                 current_state="Classified as wilful defaulter / fraudulent borrower",
                 fix="Regularise the account and obtain declassification from the lender",
@@ -108,7 +111,10 @@ def evaluate(data: EligibilityInput) -> EligibilityReport:
         items.append(
             ReadinessItem(
                 criterion="No outstanding convertible securities or rights to equity",
-                clause_ref="ICDR Reg. 228(e) (exempt: compliant ESOPs; fully paid convertibles converting before RHP/prospectus)",
+                clause_ref=(
+                    "ICDR Reg. 228(e) (exempt: compliant ESOPs; fully paid "
+                    "convertibles converting before RHP/prospectus)"
+                ),
                 current_state="Outstanding convertibles or option rights exist",
                 fix="Convert or extinguish them before filing (or fit within the exemptions)",
                 indicative_timeline="1–3 months",
@@ -121,8 +127,15 @@ def evaluate(data: EligibilityInput) -> EligibilityReport:
             ReadinessItem(
                 criterion="Post-issue paid-up capital ≤ ₹25 crore",
                 clause_ref="ICDR Reg. 229(1)-(2)",
-                current_state=f"Post-issue paid-up capital ₹{data.post_issue_paid_up_capital_paise / ONE_CRORE_PAISE:.1f} cr exceeds ₹25 cr",
-                fix="Above ₹25 cr post-issue capital, a main-board IPO applies instead — outside this tool's scope",
+                current_state=(
+                    f"Post-issue paid-up capital "
+                    f"₹{data.post_issue_paid_up_capital_paise / ONE_CRORE_PAISE:.1f} cr "
+                    "exceeds ₹25 cr"
+                ),
+                fix=(
+                    "Above ₹25 cr post-issue capital, a main-board IPO applies "
+                    "instead — outside this tool's scope"
+                ),
                 indicative_timeline="n/a (different listing route)",
             )
         )
@@ -136,7 +149,10 @@ def evaluate(data: EligibilityInput) -> EligibilityReport:
                     if data.operating_profit_years < 2
                     else "Qualifying years' EBITDA below ₹1 crore"
                 ),
-                fix="Build the operating track record; ensure statements are peer-review audited (Reg. 229 proviso)",
+                fix=(
+                    "Build the operating track record; ensure statements are "
+                    "peer-review audited (Reg. 229 proviso)"
+                ),
                 indicative_timeline="1–2 financial years",
             )
         )
@@ -158,7 +174,10 @@ def evaluate(data: EligibilityInput) -> EligibilityReport:
                 criterion="Offer for sale ≤ 20% of total issue size",
                 clause_ref="ICDR Reg. 230(1)(f)",
                 current_state=f"OFS is {data.ofs_pct_of_issue:.1f}% of the issue",
-                fix="Reduce the OFS component (each seller also capped at 50% of pre-issue holding, Reg. 230(1)(g))",
+                fix=(
+                    "Reduce the OFS component (each seller also capped at 50% "
+                    "of pre-issue holding, Reg. 230(1)(g))"
+                ),
                 indicative_timeline="restructure the issue",
             )
         )

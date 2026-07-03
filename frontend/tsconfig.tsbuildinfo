@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/api/client.ts","./src/pages/bankerdashboard.tsx","./src/pages/draftviewer.tsx","./src/pages/eligibility.tsx","./src/pages/gapreport.tsx","./src/pages/wizard.tsx"],"version":"5.9.3"}

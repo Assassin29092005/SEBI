@@ -1,0 +1,322 @@
+{
+  "board_of_directors[]": [
+    {
+      "name": "Rakesh Menon",
+      "designation": "Chairman and Managing Director",
+      "din": "00000001",
+      "category": "Executive",
+      "date_of_appointment": "2015-06-12"
+    },
+    {
+      "name": "Anita Menon",
+      "designation": "Whole-time Director",
+      "din": "00000002",
+      "category": "Executive",
+      "date_of_appointment": "2015-06-12"
+    },
+    {
+      "name": "Vijay Salunkhe",
+      "designation": "Independent Director",
+      "din": "00000003",
+      "category": "Non-Executive Independent",
+      "date_of_appointment": "2022-04-01"
+    },
+    {
+      "name": "Priya Kulkarni",
+      "designation": "Independent Director",
+      "din": "00000004",
+      "category": "Non-Executive Independent",
+      "date_of_appointment": "2023-07-15"
+    }
+  ],
+  "business_description": "Sunrise Agrotech Ltd is engaged in the manufacture and distribution of organic bio-fertilisers and micronutrient blends for horticulture and field crops, serving farmer producer organisations and agri-input dealers across Maharashtra, Gujarat and Madhya Pradesh from a single manufacturing unit at Nashik.",
+  "compliance_officer": {
+    "name": "Neha Deshpande",
+    "designation": "Company Secretary and Compliance Officer",
+    "email": "compliance@sunriseagrotech.example",
+    "phone": "+91-253-0000000"
+  },
+  "contingent_liabilities_summary": "As at 31 March 2026, contingent liabilities amount to Rs 42.00 lakh, comprising bank guarantees of Rs 30.00 lakh in favour of the state pollution control board and a disputed GST demand of Rs 12.00 lakh pending before the Appellate Authority.",
+  "creditor_dues_summary": "As at 31 March 2026, dues owed to MSME creditors aggregate Rs 68.50 lakh (73 vendors) and to non-MSME creditors Rs 1.42 crore (41 vendors); there are no dues outstanding to any statutory authority beyond ordinary payment cycles.",
+  "customer_concentration": "In FY2026 the top five customers contributed 46.2% of revenue from operations and the single largest customer contributed 14.8%; no customer accounted for more than 25%.",
+  "director_interests": "The directors are interested to the extent of the sitting fees and remuneration paid, the shareholding disclosed under Capital Structure, and the related-party transactions disclosed under Financial Information. No director has any interest in any property acquired by the company in the two years preceding the date of this draft red herring prospectus.",
+  "eligibility_confirmation": "The issuer confirms compliance with the eligibility norms under Regulation 229 of the SEBI ICDR Regulations 2018 (as applied to Chapter IX SME issues), including the operating profit condition for three of the last five financial years and the post-issue paid-up capital ceiling applicable to SME exchange listings.",
+  "gcp_amount_paise": 150000000,
+  "group_companies[]": [
+    {
+      "name": "Sunrise Seeds LLP",
+      "relationship": "LLP in which promoter is designated partner",
+      "nature_of_business": "Trading in certified vegetable seeds"
+    },
+    {
+      "name": "Menon Farms Private Limited",
+      "relationship": "Private company controlled by promoter family",
+      "nature_of_business": "Contract farming and cold storage"
+    }
+  ],
+  "incorporation_details": {
+    "date_of_incorporation": "2015-06-12",
+    "place_of_incorporation": "Mumbai, Maharashtra",
+    "original_name": "Sunrise Agrotech Private Limited",
+    "conversion_to_public_date": "2024-11-08",
+    "current_name": "Sunrise Agrotech Ltd"
+  },
+  "industry_overview": "India's bio-fertiliser market is estimated at Rs 1,850 crore in FY2026 and is projected to grow at a CAGR of 11.3% through FY2031, driven by state-level subsidies on organic inputs and increasing farmer adoption of integrated nutrient management practices.",
+  "issue_authorisations": "The issue has been authorised by the Board of Directors on 15 April 2026 and by the shareholders by a special resolution passed at the extra-ordinary general meeting held on 20 May 2026 under Section 62(1)(c) of the Companies Act 2013.",
+  "issue_size_paise": 12500000000,
+  "issuer_identity": {
+    "name": "Sunrise Agrotech Ltd",
+    "cin": "U01100MH2015PLC000000",
+    "pan": "AAACS0000A",
+    "registered_office_state": "Maharashtra"
+  },
+  "kmp[]": [
+    {
+      "name": "Rakesh Menon",
+      "designation": "Chairman and Managing Director",
+      "date_of_appointment": "2015-06-12"
+    },
+    {
+      "name": "Sanjay Patil",
+      "designation": "Chief Financial Officer",
+      "date_of_appointment": "2020-01-15"
+    },
+    {
+      "name": "Neha Deshpande",
+      "designation": "Company Secretary and Compliance Officer",
+      "date_of_appointment": "2021-09-01"
+    }
+  ],
+  "lead_managers[]": [
+    {
+      "name": "Deccan Capital Advisors Private Limited",
+      "sebi_registration": "INM000000000",
+      "role": "Book Running Lead Manager",
+      "address": "3rd Floor, Prestige House, Mumbai 400001"
+    }
+  ],
+  "licences_approvals[]": [
+    {
+      "authority": "Fertiliser Control Order, Government of India",
+      "licence": "Manufacturing licence for bio-fertilisers",
+      "reference": "FCO/BF/MH/0000",
+      "valid_until": "2028-03-31"
+    },
+    {
+      "authority": "Maharashtra Pollution Control Board",
+      "licence": "Consent to Operate (Air and Water)",
+      "reference": "MPCB/CTO/NSK/0000",
+      "valid_until": "2027-12-31"
+    },
+    {
+      "authority": "Food Safety and Standards Authority of India",
+      "licence": "FSSAI Licence for micronutrient blends",
+      "reference": "10000000000000",
+      "valid_until": "2029-06-30"
+    }
+  ],
+  "major_events[]": [
+    {"year": 2015, "event": "Incorporated as Sunrise Agrotech Private Limited at Mumbai."},
+    {"year": 2018, "event": "Commissioned Nashik manufacturing unit with installed capacity of 3,000 MT per annum."},
+    {"year": 2021, "event": "Entered into supply arrangement with three farmer producer organisations covering 4,200 hectares."},
+    {"year": 2024, "event": "Converted to a public limited company and renamed Sunrise Agrotech Ltd."},
+    {"year": 2026, "event": "Board approved the proposed initial public offering on the SME exchange platform."}
+  ],
+  "material_litigation[]": [
+    {
+      "case_number": "CS/AGR/2024/00001",
+      "forum": "Additional District Court, Nashik",
+      "parties": "Sunrise Agrotech Ltd vs. Green Valley Traders",
+      "nature": "civil",
+      "amount_involved_paise": 4500000,
+      "status": "Pending — recovery suit filed by the company against a dealer for unpaid invoices."
+    },
+    {
+      "case_number": "GST/APP/MH/2025/0000",
+      "forum": "GST Appellate Authority, Mumbai",
+      "parties": "Sunrise Agrotech Ltd vs. Commissioner (Appeals) CGST",
+      "nature": "tax",
+      "amount_involved_paise": 1200000,
+      "status": "Pending — appeal against disallowance of input tax credit for FY2023."
+    },
+    {
+      "case_number": "CC/CONS/PUN/2025/0000",
+      "forum": "District Consumer Disputes Redressal Commission, Pune",
+      "parties": "Kailash Powar vs. Sunrise Agrotech Ltd",
+      "nature": "civil",
+      "amount_involved_paise": 250000,
+      "status": "Pending — complaint alleging product deficiency filed by an end-user farmer."
+    }
+  ],
+  "material_properties[]": [
+    {
+      "location": "Plot No. 42, MIDC Sinnar, Nashik, Maharashtra",
+      "type": "Manufacturing unit (leasehold)",
+      "area_sqft": 32000,
+      "tenure": "Lease from Maharashtra Industrial Development Corporation until 2038"
+    },
+    {
+      "location": "Office No. 5, Silver Plaza, Andheri (East), Mumbai",
+      "type": "Registered office (leasehold)",
+      "area_sqft": 1800,
+      "tenure": "Lease from a third-party landlord until 2029"
+    }
+  ],
+  "materiality_policy": "The Board has adopted a policy under which a legal proceeding is considered material if (a) the monetary impact exceeds 1% of the restated consolidated turnover for the last completed financial year, or (b) the outcome could adversely affect the operations, reputation or standing of the company irrespective of the amount involved.",
+  "means_of_finance": "The entire requirement of funds for the objects of the issue is proposed to be met from the net proceeds of the fresh issue; the company has not identified any alternative source of financing and confirms that the deployment schedule does not depend on any pending debt sanction.",
+  "negative_cash_flow_years": "The company reported negative cash flows from operating activities of Rs 62.00 lakh in FY2022 on account of a working-capital build-up ahead of the Nashik unit's second-shift commissioning; cash flows from operations have been positive in each of the two subsequent financial years.",
+  "objects_of_issue[]": [
+    {
+      "purpose": "Expansion of the Nashik manufacturing unit — installation of a second production line",
+      "amount_paise": 620000000,
+      "deployment_schedule": "FY2027 (60%), FY2028 (40%)"
+    },
+    {
+      "purpose": "Funding incremental working-capital requirements",
+      "amount_paise": 380000000,
+      "deployment_schedule": "FY2027"
+    },
+    {
+      "purpose": "Repayment or pre-payment of identified borrowings",
+      "amount_paise": 130000000,
+      "deployment_schedule": "FY2027"
+    },
+    {
+      "purpose": "General corporate purposes",
+      "amount_paise": 150000000,
+      "deployment_schedule": "FY2027 onwards"
+    }
+  ],
+  "peer_comparison[]": [
+    {
+      "peer_name": "Harit Kranti Fertilisers Ltd",
+      "eps_inr": 5.42,
+      "pe_ratio": 22.4,
+      "ronw_percent": 14.1,
+      "nav_per_share_inr": 38.60
+    },
+    {
+      "peer_name": "AgriPure Nutrients Ltd",
+      "eps_inr": 3.15,
+      "pe_ratio": 27.9,
+      "ronw_percent": 11.7,
+      "nav_per_share_inr": 27.10
+    }
+  ],
+  "price_band": {
+    "floor_price_paise": 8500,
+    "cap_price_paise": 9000,
+    "face_value_paise": 1000
+  },
+  "products_services[]": [
+    {"name": "SunGrow Bio-N", "category": "Nitrogen-fixing bio-fertiliser", "revenue_share_percent": 34.5},
+    {"name": "SunGrow Bio-P", "category": "Phosphate-solubilising bio-fertiliser", "revenue_share_percent": 21.8},
+    {"name": "SunMicro Zn+B", "category": "Zinc and boron micronutrient blend", "revenue_share_percent": 26.3},
+    {"name": "SunMicro Fe+Mn", "category": "Iron and manganese micronutrient blend", "revenue_share_percent": 17.4}
+  ],
+  "promoter_group_entities[]": [
+    {
+      "name": "Menon Family Trust",
+      "relationship": "Family trust of the promoter",
+      "shareholding_percent_pre_issue": 4.20
+    },
+    {
+      "name": "Sunrise Seeds LLP",
+      "relationship": "LLP in which promoter is designated partner",
+      "shareholding_percent_pre_issue": 0.00
+    }
+  ],
+  "promoter_interests": "The promoters are interested in the company to the extent of their shareholding, remuneration drawn as executive directors, and rentals received in respect of the Andheri office premises leased to the company on arm's-length terms.",
+  "promoter_shareholding[]": [
+    {
+      "promoter": "Rakesh Menon",
+      "shares_held_pre_issue": 4200000,
+      "percent_pre_issue": 42.00,
+      "lock_in_years": 3
+    },
+    {
+      "promoter": "Anita Menon",
+      "shares_held_pre_issue": 2100000,
+      "percent_pre_issue": 21.00,
+      "lock_in_years": 3
+    }
+  ],
+  "promoters[]": [
+    {
+      "name": "Rakesh Menon",
+      "pan": "ABCPM0000A",
+      "din": "00000001",
+      "date_of_birth": "1972-03-18"
+    },
+    {
+      "name": "Anita Menon",
+      "pan": "ABCPM0000B",
+      "din": "00000002",
+      "date_of_birth": "1975-11-24"
+    }
+  ],
+  "reg228_declarations": "Neither the issuer, its promoters, promoter group nor its directors are debarred from accessing the capital market, categorised as wilful defaulters or fraudulent borrowers, or classified as fugitive economic offenders under any order in force on the date of this draft red herring prospectus.",
+  "registered_office": {
+    "address": "Office No. 5, Silver Plaza, Andheri (East), Mumbai 400069",
+    "state": "Maharashtra",
+    "roc": "Registrar of Companies, Mumbai"
+  },
+  "registrar_to_issue": {
+    "name": "Konkan Registry Services Private Limited",
+    "sebi_registration": "INR000000000",
+    "address": "Ground Floor, Coastal House, Mumbai 400013",
+    "contact_person": "Meera Iyer"
+  },
+  "restated_financials_upload": "restated_financials_fy24_fy25_fy26.pdf",
+  "rpt_summary": "Related-party transactions in FY2026 comprise (i) office rent of Rs 24.00 lakh paid to Rakesh Menon and Anita Menon jointly, (ii) purchase of raw material aggregating Rs 78.50 lakh from Menon Farms Private Limited, and (iii) remuneration to executive directors of Rs 1.20 crore; all transactions were at arm's length and approved by the Audit Committee.",
+  "selected_financial_summary": "Restated revenue from operations grew from Rs 42.30 crore (FY2024) to Rs 58.70 crore (FY2025) to Rs 73.10 crore (FY2026); restated profit after tax grew from Rs 3.20 crore to Rs 5.10 crore to Rs 7.40 crore over the same period; net worth as at 31 March 2026 stood at Rs 28.90 crore.",
+  "share_allotments[]": [
+    {
+      "date": "2015-06-12",
+      "shares": 10000,
+      "face_value_paise": 1000,
+      "issue_price_paise": 1000,
+      "consideration": "Cash",
+      "nature": "Subscription to memorandum"
+    },
+    {
+      "date": "2018-08-20",
+      "shares": 2000000,
+      "face_value_paise": 1000,
+      "issue_price_paise": 2500,
+      "consideration": "Cash",
+      "nature": "Private placement"
+    },
+    {
+      "date": "2021-11-05",
+      "shares": 1490000,
+      "face_value_paise": 1000,
+      "issue_price_paise": 4000,
+      "consideration": "Cash",
+      "nature": "Rights issue"
+    },
+    {
+      "date": "2024-10-30",
+      "shares": 6500000,
+      "face_value_paise": 1000,
+      "issue_price_paise": 0,
+      "consideration": "Bonus",
+      "nature": "Bonus issue in the ratio 1.86:1"
+    }
+  ],
+  "sme_exchange": "NSE Emerge",
+  "statutory_auditor": {
+    "name": "R. Deshmukh and Associates, Chartered Accountants",
+    "firm_registration_number": "000000W",
+    "peer_reviewed": true,
+    "appointment_date": "2021-09-30"
+  },
+  "subsidiaries[]": [
+    {
+      "name": "Sunrise Agrotech Logistics Private Limited",
+      "cin": "U63030MH2022PTC000000",
+      "shareholding_percent": 100.0,
+      "nature_of_business": "Last-mile distribution of bio-fertiliser products"
+    }
+  ]
+}
