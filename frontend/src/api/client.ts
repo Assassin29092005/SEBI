@@ -190,12 +190,45 @@ export interface SectionCoverage {
   covered: number;
   total: number;
   out_of_scope: number;
+  not_applicable: number; // conditional entries whose has_* condition is unmet
 }
 
 export interface CoverageReport {
   sections: SectionCoverage[];
   // NOTE: ``overall_pct`` is a Pydantic @property on the backend and is NOT
   // serialised in the JSON response. Compute it on the frontend if needed.
+}
+
+// Reference-filing benchmark (backend/app/coverage.py, data/reference_drhps/)
+export interface ChapterMapping {
+  heading: string;
+  maps_to: string[];
+  status: string; // "encoded" | "out_of_scope_auditor" | "not_encoded"
+  note: string | null;
+}
+
+export interface ReferenceBenchmark {
+  company: string;
+  source_url: string;
+  filed: string;
+  exchange: string;
+  framework_evidence: string;
+  chapters: ChapterMapping[];
+}
+
+export interface BenchmarkSummaryRow {
+  company: string;
+  filed: string;
+  chapters_total: number;
+  chapters_encoded: number;
+  chapters_out_of_scope_auditor: number;
+  chapters_not_encoded: string[];
+  in_scope_coverage_pct: number;
+}
+
+export interface BenchmarkReport {
+  references: ReferenceBenchmark[];
+  summary: BenchmarkSummaryRow[];
 }
 
 // --------------------------------------------------------------------------
@@ -344,6 +377,9 @@ export const getExaminer = (): Promise<Objection[]> =>
 // Coverage
 export const getCoverage = (): Promise<CoverageReport> =>
   apiGet<CoverageReport>("/api/coverage");
+
+export const getCoverageBenchmark = (): Promise<BenchmarkReport> =>
+  apiGet<BenchmarkReport>("/api/coverage/benchmark");
 
 // Gaps
 export const getGaps = (): Promise<GapReport> => apiGet<GapReport>("/api/gaps");

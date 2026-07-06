@@ -345,3 +345,59 @@ subsidiaries[]:
   hi:
     prompt: "कंपनी की सहायक कंपनियों की सूची दीजिए।"
     help: "प्रत्येक सहायक कंपनी के लिए नाम, निगमन का देश, निर्गमकर्ता द्वारा धारित शेयरधारिता का प्रतिशत, और व्यवसाय की प्रकृति दीजिए।"
+
+dividend_policy:
+  en:
+    prompt: "What is your company's dividend policy?"
+    help: "State whether the board has adopted a formal dividend policy. If you have never paid a dividend, say so plainly and explain what future dividends will depend on (profits, expansion plans, etc.)."
+  hi:
+    prompt: "आपकी कंपनी की लाभांश नीति क्या है?"
+    help: "बताइए कि क्या बोर्ड ने कोई औपचारिक लाभांश नीति अपनाई है। यदि आपने कभी लाभांश नहीं दिया है, तो स्पष्ट रूप से कहिए और बताइए कि भविष्य के लाभांश किन बातों पर निर्भर करेंगे (लाभ, विस्तार योजनाएँ आदि)।"
+
+dividends_paid[]:
+  en:
+    prompt: "List the dividends paid in the last three financial years."
+    help: "For each of the last three financial years, give the dividend per share and the rate. If no dividend was paid in a year, enter zero — that is a perfectly acceptable answer."
+  hi:
+    prompt: "पिछले तीन वित्तीय वर्षों में दिए गए लाभांश की सूची दीजिए।"
+    help: "पिछले तीन वित्तीय वर्षों में से प्रत्येक के लिए प्रति शेयर लाभांश और दर बताइए। यदि किसी वर्ष लाभांश नहीं दिया गया, तो शून्य लिखिए — यह बिल्कुल स्वीकार्य उत्तर है।"
+
+investor_grievance_mechanism:
+  en:
+    prompt: "How will investor complaints be handled?"
+    help: "Describe who investors should contact with a complaint (usually your compliance officer and the registrar to the issue) and mention SCORES — SEBI's online complaint system — which listed companies must be part of."
+  hi:
+    prompt: "निवेशकों की शिकायतों का समाधान कैसे किया जाएगा?"
+    help: "बताइए कि निवेशक शिकायत के लिए किससे संपर्क करें (आमतौर पर आपका अनुपालन अधिकारी और निर्गम का रजिस्ट्रार) और SCORES का उल्लेख कीजिए — SEBI की ऑनलाइन शिकायत प्रणाली — जिससे सूचीबद्ध कंपनियों को जुड़ना अनिवार्य है।"
+
+investor_complaints_summary:
+  en:
+    prompt: "How many investor complaints did you receive in the last three years, and how many are pending?"
+    help: "If your company is unlisted and has never had public investors, say that no complaints were received or are pending. Also mention how long you normally take to resolve a complaint."
+  hi:
+    prompt: "पिछले तीन वर्षों में आपको कितनी निवेशक शिकायतें मिलीं, और कितनी लंबित हैं?"
+    help: "यदि आपकी कंपनी असूचीबद्ध है और कभी सार्वजनिक निवेशक नहीं रहे, तो बताइए कि कोई शिकायत न मिली है और न लंबित है। यह भी बताइए कि शिकायत सुलझाने में आमतौर पर कितना समय लगता है।"
+
+material_contracts[]:
+  en:
+    prompt: "List the material contracts for the issue."
+    help: "These are contracts connected with the IPO (issue agreement with the lead manager, registrar agreement) plus any business contract important enough that an investor should be able to read it — for example a long-term lease of your factory."
+  hi:
+    prompt: "इस निर्गम से संबंधित महत्वपूर्ण अनुबंधों की सूची दीजिए।"
+    help: "ये IPO से जुड़े अनुबंध हैं (लीड मैनेजर के साथ इश्यू एग्रीमेंट, रजिस्ट्रार एग्रीमेंट) तथा कोई भी ऐसा व्यावसायिक अनुबंध जो इतना महत्वपूर्ण हो कि निवेशक उसे पढ़ सकें — जैसे आपके कारखाने का दीर्घकालिक पट्टा।"
+
+material_documents[]:
+  en:
+    prompt: "List the material documents that will be open for inspection."
+    help: "Standard items include your Memorandum and Articles of Association, the board and shareholder resolutions approving the IPO, the restated financial statements with the auditor's report, and the written consents of your intermediaries."
+  hi:
+    prompt: "निरीक्षण के लिए उपलब्ध रहने वाले महत्वपूर्ण दस्तावेज़ों की सूची दीजिए।"
+    help: "मानक दस्तावेज़ों में आपका संस्था-अंतर्नियम (MoA/AoA), IPO को मंज़ूरी देने वाले बोर्ड और शेयरधारक संकल्प, लेखा-परीक्षक की रिपोर्ट सहित पुनर्कथित वित्तीय विवरण, और आपके मध्यस्थों की लिखित सहमतियाँ शामिल हैं।"
+
+inspection_arrangements:
+  en:
+    prompt: "Where and when can investors inspect these contracts and documents?"
+    help: "Give the address (usually your registered office), the hours on working days, and the website address — the regulation requires the documents to also be available online — from the date of the offer document until the issue closes."
+  hi:
+    prompt: "निवेशक इन अनुबंधों और दस्तावेज़ों का निरीक्षण कहाँ और कब कर सकते हैं?"
+    help: "पता (आमतौर पर आपका पंजीकृत कार्यालय), कार्य दिवसों के घंटे, और वेबसाइट का पता दीजिए — नियम के अनुसार दस्तावेज़ ऑनलाइन भी उपलब्ध होने चाहिए — प्रस्ताव दस्तावेज़ की तारीख से निर्गम बंद होने तक।"

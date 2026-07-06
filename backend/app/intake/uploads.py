@@ -9,7 +9,8 @@ Extraction runs two paths and merges the results:
    fact-ontology keys derived from the checklist schema (never hardcoded).
    The model may only return values literally present in the page text;
    anything ungrounded is dropped at parse time (unknown keys, snippets not
-   found verbatim in the page).
+   found verbatim in the page). Monetary (``*_paise``) values are never taken
+   from the model — they are recomputed deterministically from the snippet.
 2. **Deterministic path** — always runs, and is the sole path when no LLM key
    is configured (offline-first): scans for ``Label: value`` lines using the
    shared label convention.
@@ -214,7 +215,23 @@ def _parse_llm_proposals(
             continue  # not grounded in the source page — never propose it
         if isinstance(raw_value, bool) or not isinstance(raw_value, str | int | float):
             continue
-        value = _normalise_value(str(fact_key), str(raw_value))
+        value: str | int | None
+        if str(fact_key).removesuffix("[]").endswith("_paise"):
+            # Never trust LLM arithmetic: the model may return a wrong unit
+            # conversion (e.g. 10x off on crore→paise). Recompute the amount
+            # from the verified source snippet — the same text the promoter
+            # confirms against — and drop the proposal if it doesn't parse.
+            try:
+                value = parse_inr_to_paise(snippet)
+            except ValueError:
+                logger.warning(
+                    "dropping %s proposal: snippet has no parseable amount: %r",
+                    fact_key,
+                    snippet,
+                )
+                continue
+        else:
+            value = _normalise_value(str(fact_key), str(raw_value))
         if value is None:
             continue
         confidence = item.get("confidence")

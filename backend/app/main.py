@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.assemble.docx_builder import assemble
-from app.coverage import CoverageReport, score
+from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
 from app.facts import Fact, FactStore, Provenance
 from app.generate.sections import GeneratedSection, generate_all
@@ -278,7 +278,13 @@ async def validate_examiner() -> list[Objection]:
 
 @app.get("/api/coverage")
 async def coverage() -> CoverageReport:
-    return score(checklist, state.generated_sections)
+    return score(checklist, state.generated_sections, store=state.fact_store)
+
+
+@app.get("/api/coverage/benchmark")
+async def coverage_benchmark() -> BenchmarkReport:
+    """Schema coverage of real filed SME DRHP tables of contents (evidence, not a claim)."""
+    return benchmark(checklist)
 
 
 # --------------------------------------------------------------------------

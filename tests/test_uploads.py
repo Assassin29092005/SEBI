@@ -9,6 +9,7 @@ import pytest
 from app.facts import SourceKind
 from app.intake.uploads import (
     ExtractionProposal,
+    _parse_llm_proposals,
     extract_facts,
     parse_inr_to_paise,
     proposal_to_fact,
@@ -46,6 +47,39 @@ def test_parse_inr_plain_number_no_currency_marker() -> None:
 def test_parse_inr_raises_when_no_number_present() -> None:
     with pytest.raises(ValueError):
         parse_inr_to_paise("no digits here")
+
+
+# --------------------------------------------------------------------------
+# LLM proposals: monetary values are recomputed from the snippet, never
+# taken from the model (an LLM 10x-off unit conversion must not survive)
+# --------------------------------------------------------------------------
+
+
+def test_llm_paise_value_is_recomputed_from_snippet_not_trusted() -> None:
+    page_text = "Term sheet.\nIssue Size: ₹14.00 crore\nOther prose."
+    # Model returns a wrong conversion (10x too big) but a valid snippet.
+    response = (
+        '[{"fact_key": "issue_size_paise", "value": 140000000000,'
+        ' "page": 1, "snippet": "Issue Size: ₹14.00 crore", "confidence": 0.9}]'
+    )
+    proposals = _parse_llm_proposals(
+        response, 1, page_text, "term_sheet.txt", {"issue_size_paise"}
+    )
+    assert len(proposals) == 1
+    assert proposals[0].value == 14 * 10**9  # snippet wins, model arithmetic ignored
+
+
+def test_llm_paise_proposal_dropped_when_snippet_has_no_amount() -> None:
+    page_text = "The issue size will be finalised later."
+    response = (
+        '[{"fact_key": "issue_size_paise", "value": 14000000000,'
+        ' "page": 1, "snippet": "The issue size will be finalised later.",'
+        ' "confidence": 0.9}]'
+    )
+    proposals = _parse_llm_proposals(
+        response, 1, page_text, "term_sheet.txt", {"issue_size_paise"}
+    )
+    assert proposals == []  # no parseable amount in the source text → never propose
 
 
 # --------------------------------------------------------------------------

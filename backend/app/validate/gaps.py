@@ -10,6 +10,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from app.facts import FactStore
+from app.schema.applicability import entry_applies
 from app.schema.models import Checklist, Role, Severity
 
 
@@ -35,7 +36,10 @@ class GapReport(BaseModel):
 def check_gaps(checklist: Checklist, store: FactStore) -> GapReport:
     gaps: list[Gap] = []
     for entry in checklist.entries:
-        if entry.stub:
+        # Inapplicable conditional entries (has_* condition unmet) are not
+        # gaps — flagging them would tell the promoter to supply content the
+        # regulation does not require of them.
+        if entry.stub or not entry_applies(entry, store):
             continue
         for fact_key in entry.required_facts:
             if not store.confirmed_by_key(fact_key):
