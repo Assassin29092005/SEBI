@@ -262,3 +262,51 @@ def test_generate_all_smoke_over_real_checklist_produces_a_section_per_applicabl
         assert section.missing_facts, (
             f"expected missing_facts on {section.entry_id} with an empty store"
         )
+
+
+# --------------------------------------------------------------------------
+# Definitions and abbreviations: system-authored glossary, never sent to LLM
+# --------------------------------------------------------------------------
+
+
+def test_definitions_section_renders_standard_glossary_without_llm_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_if_called(**kwargs: Any) -> LLMResponse:
+        raise AssertionError("definitions section must never call the LLM")
+
+    monkeypatch.setattr(sections_mod, "grounded_complete", fail_if_called)
+
+    entry = _entry(
+        entry_id="general.definitions_abbreviations",
+        required_facts=["issuer_identity"],
+        role=Role.SYSTEM,
+        section="General",
+    )
+    store = FactStore()
+    section = run(generate_section(entry, store))
+
+    assert "SEBI:" in section.text
+    assert "ICDR Regulations:" in section.text
+    assert "KMP:" in section.text
+    assert section.missing_facts == ["issuer_identity"]
+    assert "[REQUIRES INPUT: issuer_identity" in section.text
+
+
+def test_definitions_section_includes_confirmed_issuer_identity_with_citation() -> None:
+    entry = _entry(
+        entry_id="general.definitions_abbreviations",
+        required_facts=["issuer_identity"],
+        role=Role.SYSTEM,
+        section="General",
+    )
+    store = FactStore()
+    fact = _confirmed_fact(
+        store, "issuer_identity", {"name": "Sunrise Agrotech Ltd"}, "wizard:issuer_identity"
+    )
+    section = run(generate_section(entry, store))
+
+    assert section.missing_facts == []
+    assert any(c.fact_id == fact.fact_id for c in section.citations)
+    span = section.citations[-1].text_span
+    assert "Sunrise Agrotech Ltd" in section.text[span[0] : span[1]]

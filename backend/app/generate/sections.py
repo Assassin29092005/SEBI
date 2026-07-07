@@ -37,6 +37,7 @@ from pydantic import BaseModel
 
 from app.facts import Fact, FactStore
 from app.llm.client import grounded_complete
+from app.schema.applicability import entry_applies
 from app.schema.models import Checklist, ChecklistEntry
 
 try:  # pragma: no cover - exercised only once the client exports it
@@ -141,6 +142,75 @@ def _render_deterministic(
         )
         lines.append(sentence)
         offset += len(sentence) + 1  # +1 for the joining newline
+    for key in missing:
+        lines.append(requires_input_marker(key, entry.responsible_role.value))
+    return GeneratedSection(
+        entry_id=entry.id,
+        section=entry.section,
+        text="\n".join(lines),
+        citations=citations,
+        missing_facts=list(missing),
+    )
+
+
+# --------------------------------------------------------------------------
+# Definitions and abbreviations: system-authored, never LLM-authored — a
+# fixed regulatory glossary (per CLAUDE.md's Domain Glossary) plus
+# issuer-specific terms pulled from confirmed facts. No hallucination risk
+# because nothing here is generated text.
+# --------------------------------------------------------------------------
+
+_DEFINITIONS_ENTRY_ID = "general.definitions_abbreviations"
+
+# Standard conventional/general and issue-related terms. Not derived from any
+# fact — these are fixed statutory definitions, the same for every issuer.
+_STANDARD_GLOSSARY: tuple[tuple[str, str], ...] = (
+    ("SEBI", "Securities and Exchange Board of India, the capital markets regulator."),
+    (
+        "ICDR Regulations",
+        "SEBI (Issue of Capital and Disclosure Requirements) Regulations, 2018, as amended.",
+    ),
+    ("Chapter IX", "The ICDR chapter governing SME initial public offers."),
+    ("DRHP", "Draft Red Herring Prospectus, filed for regulatory and public review."),
+    ("RHP", "Red Herring Prospectus, the updated offer document filed before the issue opens."),
+    (
+        "SME Exchange",
+        "The dedicated SME listing platform of a recognised stock exchange "
+        "(e.g. BSE SME, NSE Emerge).",
+    ),
+    (
+        "Lead Manager / Merchant Banker",
+        "The SEBI-registered intermediary responsible for due diligence and "
+        "certification of the issue.",
+    ),
+    ("KMP", "Key Managerial Personnel."),
+    ("RPT", "Related Party Transaction."),
+    ("OFS", "Offer for Sale — existing shareholders selling shares as part of the issue."),
+    (
+        "GCP",
+        "General Corporate Purposes — a use-of-proceeds category subject to a regulatory cap.",
+    ),
+    ("Promoter", "A person or entity in control of the issuer, per ICDR Regulation 2(1)(oo)."),
+    (
+        "Promoter Group",
+        "Persons and entities constituting the promoter group under ICDR Regulation 2(1)(pp).",
+    ),
+)
+
+
+def _render_definitions_abbreviations(
+    entry: ChecklistEntry, issuer_facts: list[Fact], missing: list[str]
+) -> GeneratedSection:
+    lines: list[str] = [f"{term}: {meaning}" for term, meaning in _STANDARD_GLOSSARY]
+    citations: list[Citation] = []
+    offset = sum(len(line) + 1 for line in lines)  # glossary lines carry no citation
+    for fact in issuer_facts:
+        sentence = _fact_sentence(fact)
+        citations.append(
+            Citation(fact_id=fact.fact_id, text_span=(offset, offset + len(sentence)))
+        )
+        lines.append(sentence)
+        offset += len(sentence) + 1
     for key in missing:
         lines.append(requires_input_marker(key, entry.responsible_role.value))
     return GeneratedSection(
@@ -272,6 +342,10 @@ async def generate_section(entry: ChecklistEntry, store: FactStore) -> Generated
     missing = [key for key, found in facts_by_key.items() if not found]
     ordered_facts = [fact for found in facts_by_key.values() for fact in found]
 
+    if entry.id == _DEFINITIONS_ENTRY_ID:
+        # System-authored glossary, never sent to the LLM.
+        return _render_definitions_abbreviations(entry, ordered_facts, missing)
+
     if not ordered_facts:
         return _render_deterministic(entry, [], missing)
 
@@ -308,14 +382,13 @@ async def generate_section(entry: ChecklistEntry, store: FactStore) -> Generated
 async def generate_all(checklist: Checklist, store: FactStore) -> list[GeneratedSection]:
     """Generate every currently applicable section of the checklist.
 
-    Covers all non-stub entries whose ``applicability`` is ``"always"``.
-    Evaluation of conditional applicability (named conditions such as
-    ``"has_convertibles"`` checked against the fact store) is future work;
-    conditional entries are skipped for now, as are stub entries.
+    Covers all non-stub entries whose ``applicability`` holds for this issuer:
+    ``"always"``, or a named ``has_<fact_key>`` condition evaluated against
+    the confirmed facts (see :mod:`app.schema.applicability`).
     """
     sections: list[GeneratedSection] = []
     for entry in checklist.entries:
-        if entry.stub or entry.applicability != "always":
+        if entry.stub or not entry_applies(entry, store):
             continue
         sections.append(await generate_section(entry, store))
     return sections

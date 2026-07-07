@@ -1,0 +1,82 @@
+# Table of contents of a real filed SME DRHP, hand-mapped to checklist entries.
+# Extracted from the PDF in this directory (public NSE Emerge filing).
+# status: encoded (maps_to non-empty) | out_of_scope_auditor | not_encoded
+company: "Harit Industries Limited"
+source_url: "https://nsearchives.nseindia.com/emerge/corporates/content/Registration_19032026173524_HaritIndustriesLimitedDRHP.pdf"
+filed: "2026-03-19"
+exchange: "NSE Emerge"
+framework_evidence: "Cover page cites Chapter IX (Reg. 229) of the SEBI ICDR Regulations, 2018"
+chapters:
+  - heading: "Definitions and Abbreviations"
+    maps_to: [general.definitions_abbreviations]
+  - heading: "Certain Conventions, Use of Financial, Industry and Market Data and Currency of Presentation"
+    status: not_encoded
+  - heading: "Forward Looking Statements"
+    status: not_encoded
+  - heading: "Summary of Issue Document"
+    maps_to: [introduction.summary]
+  - heading: "Risk Factors"
+    maps_to: [risk_factors.material_risks]
+  - heading: "The Issue"
+    maps_to: [general.cover_pages, offering.terms_of_issue]
+  - heading: "Summary of Financial Information"
+    maps_to: [introduction.summary]
+  - heading: "General Information"
+    maps_to: [general_info.issuer_particulars]
+  - heading: "Capital Structure"
+    maps_to: [capital_structure.share_capital_history, capital_structure.promoter_shareholding]
+  - heading: "Objects of the Issue"
+    maps_to: [objects.use_of_proceeds]
+  - heading: "Basis for Issue Price"
+    maps_to: [objects.basis_for_issue_price]
+  - heading: "Statement of Possible Tax Benefits"
+    status: out_of_scope_auditor
+  - heading: "Industry Overview"
+    maps_to: [introduction.summary]
+    note: "encoded at summary depth (industry_overview fact); no standalone deep chapter yet"
+  - heading: "Our Business"
+    maps_to: [business.overview]
+  - heading: "Key Regulations and Policies in India"
+    status: not_encoded
+  - heading: "History and Certain Corporate Matters"
+    maps_to: [business.history_corporate_structure]
+  - heading: "Our Management"
+    maps_to: [management.board_and_kmp]
+  - heading: "Our Promoters and Promoter Group"
+    maps_to: [management.promoters]
+  - heading: "Our Group Companies"
+    maps_to: [group.group_companies]
+  - heading: "Dividend Policy"
+    maps_to: [offering.dividend_policy]
+  - heading: "Restated Consolidated Financial Information"
+    status: out_of_scope_auditor
+  - heading: "Other Financial Information"
+    status: out_of_scope_auditor
+  - heading: "Related Party Transactions"
+    maps_to: [financials.related_party_transactions]
+  - heading: "Capitalization Statement"
+    status: out_of_scope_auditor
+  - heading: "Financial Indebtedness"
+    status: out_of_scope_auditor
+  - heading: "Management's Discussion and Analysis of Financial Condition and Results of Operations"
+    maps_to: [financials.mdna]
+  - heading: "Outstanding Litigations and Material Developments"
+    maps_to: [legal.outstanding_litigation]
+  - heading: "Government and Other Approvals"
+    maps_to: [legal.government_approvals]
+  - heading: "Other Regulatory and Statutory Disclosures"
+    maps_to: [regulatory.statutory_disclosures, regulatory.investor_grievances]
+  - heading: "Terms of the Issue"
+    maps_to: [offering.terms_of_issue]
+  - heading: "Issue Structure"
+    maps_to: [offering.terms_of_issue]
+  - heading: "Issue Procedure"
+    maps_to: [offering.terms_of_issue]
+  - heading: "Restrictions on Foreign Ownership of Indian Securities"
+    status: not_encoded
+  - heading: "Description of Equity Shares and Terms of Articles of Association"
+    status: not_encoded
+  - heading: "Material Contracts and Documents for Inspection"
+    maps_to: [other.material_contracts]
+  - heading: "Declaration"
+    status: not_encoded

@@ -40,6 +40,12 @@
   "creditor_dues_summary": "As at 31 March 2026, dues owed to MSME creditors aggregate Rs 68.50 lakh (73 vendors) and to non-MSME creditors Rs 1.42 crore (41 vendors); there are no dues outstanding to any statutory authority beyond ordinary payment cycles.",
   "customer_concentration": "In FY2026 the top five customers contributed 46.2% of revenue from operations and the single largest customer contributed 14.8%; no customer accounted for more than 25%.",
   "director_interests": "The directors are interested to the extent of the sitting fees and remuneration paid, the shareholding disclosed under Capital Structure, and the related-party transactions disclosed under Financial Information. No director has any interest in any property acquired by the company in the two years preceding the date of this draft red herring prospectus.",
+  "dividend_policy": "The company has not declared any dividend since incorporation and does not have a formal dividend policy; future dividends will depend on earnings, capital requirements and the expansion plan, and will be recommended by the Board in accordance with the Companies Act 2013.",
+  "dividends_paid[]": [
+    {"financial_year": "FY2024", "dividend_per_share_paise": 0, "rate_percent": 0},
+    {"financial_year": "FY2025", "dividend_per_share_paise": 0, "rate_percent": 0},
+    {"financial_year": "FY2026", "dividend_per_share_paise": 0, "rate_percent": 0}
+  ],
   "eligibility_confirmation": "The issuer confirms compliance with the eligibility norms under Regulation 229 of the SEBI ICDR Regulations 2018 (as applied to Chapter IX SME issues), including the operating profit condition for three of the last five financial years and the post-issue paid-up capital ceiling applicable to SME exchange listings.",
   "gcp_amount_paise": 150000000,
   "group_companies[]": [
@@ -62,6 +68,9 @@
     "current_name": "Sunrise Agrotech Ltd"
   },
   "industry_overview": "India's bio-fertiliser market is estimated at Rs 1,850 crore in FY2026 and is projected to grow at a CAGR of 11.3% through FY2031, driven by state-level subsidies on organic inputs and increasing farmer adoption of integrated nutrient management practices.",
+  "inspection_arrangements": "Copies of the material contracts and documents will be available for inspection at the registered office at Office No. 5, Silver Plaza, Andheri (East), Mumbai 400069 between 10.00 a.m. and 5.00 p.m. on working days, and online at www.sunriseagrotech.example/investors, from the date of the red herring prospectus until the closing of the subscription list.",
+  "investor_complaints_summary": "The company is unlisted and has received no investor complaints in the preceding three years; no complaints were pending as on the date of this draft red herring prospectus. Grievances are normally resolved within 15 days of receipt.",
+  "investor_grievance_mechanism": "The Company Secretary and Compliance Officer is the designated point of contact for investor grievances; post-listing, grievances may also be lodged through the SEBI Complaints Redress System (SCORES), and the registrar to the issue will handle applications-related complaints within the timelines prescribed by SEBI.",
   "issue_authorisations": "The issue has been authorised by the Board of Directors on 15 April 2026 and by the shareholders by a special resolution passed at the extra-ordinary general meeting held on 20 May 2026 under Section 62(1)(c) of the Companies Act 2013.",
   "issue_size_paise": 12500000000,
   "issuer_identity": {
@@ -121,6 +130,17 @@
     {"year": 2021, "event": "Entered into supply arrangement with three farmer producer organisations covering 4,200 hectares."},
     {"year": 2024, "event": "Converted to a public limited company and renamed Sunrise Agrotech Ltd."},
     {"year": 2026, "event": "Board approved the proposed initial public offering on the SME exchange platform."}
+  ],
+  "material_contracts[]": [
+    {"contract": "Issue Agreement dated 2 June 2026 between the company and Deccan Capital Advisors Private Limited", "parties": "Company; Book Running Lead Manager"},
+    {"contract": "Registrar Agreement dated 2 June 2026 with Konkan Registry Services Private Limited", "parties": "Company; Registrar to the Issue"},
+    {"contract": "Lease deed dated 12 January 2018 with Maharashtra Industrial Development Corporation for the Nashik manufacturing unit", "parties": "Company; MIDC"}
+  ],
+  "material_documents[]": [
+    {"document": "Certified copies of the Memorandum and Articles of Association, as amended"},
+    {"document": "Board resolution dated 15 April 2026 and shareholders' special resolution dated 20 May 2026 authorising the issue"},
+    {"document": "Restated financial information for FY2024-FY2026 and the examination report of the peer-reviewed statutory auditor"},
+    {"document": "Consents of the directors, lead manager, registrar, statutory auditor and other intermediaries"}
   ],
   "material_litigation[]": [
     {
