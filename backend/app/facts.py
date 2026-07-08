@@ -93,3 +93,12 @@ class FactStore:
             f.provenance.supersedes for f in self._facts.values() if f.provenance.supersedes
         }
         return [f for f in self._facts.values() if f.confirmed and f.fact_id not in superseded]
+
+    def all_facts(self) -> list[Fact]:
+        """Every fact ever stored — confirmed, unconfirmed, and superseded alike.
+
+        Exists for the exchange-ready bundle's audit trail (insertion order).
+        Generation must keep using :meth:`confirmed_by_key` / :meth:`all_confirmed`;
+        an unconfirmed fact never feeds generation.
+        """
+        return list(self._facts.values())

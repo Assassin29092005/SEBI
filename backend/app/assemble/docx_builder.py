@@ -38,11 +38,23 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Length, Pt, RGBColor
 from docx.text.paragraph import Paragraph
 
+from app.facts import FactStore
 from app.generate.sections import GeneratedSection, requires_input_marker
 from app.schema.models import Checklist, ChecklistEntry, ChecklistHeader, OutputTarget
 
 DRAFT_NOTICE = (
     "DRAFT — NOT FOR FILING. Pending merchant banker due diligence and certification."
+)
+
+LEGAL_DISCLAIMER = (
+    "This document is a computer-assisted draft and not legal advice. It may be filed "
+    "only after due diligence and certification by a SEBI-registered merchant banker "
+    "(lead manager)."
+)
+
+CONTRADICTION_NOTICE = (
+    "CONTRADICTION DETECTED: confirmed sources disagree on the issue size — "
+    "see the validation report before certification."
 )
 
 _TITLES: dict[OutputTarget, str] = {
@@ -102,6 +114,7 @@ def assemble(
     target: OutputTarget,
     out_path: Path,
     issue_size_paise: int | None = None,
+    store: FactStore | None = None,
 ) -> Path:
     """Assemble the formatted document for one output target.
 
@@ -112,6 +125,11 @@ def assemble(
 
     ``issue_size_paise`` (optional) surfaces an indicative issue size on the
     cover page, formatted lakh/crore at this display layer only.
+
+    ``store`` (optional) makes the cover page pull live confirmed
+    ``issue_size_paise`` facts instead: more than one distinct confirmed value
+    renders every value with its provenance plus a contradiction callout, so a
+    cross-source disagreement is visible in the exported artefact itself.
     """
     entries = [e for e in checklist.entries if target in e.output_targets]
     grouped: dict[str, list[ChecklistEntry]] = {}
@@ -121,8 +139,9 @@ def assemble(
     for gen in sections:
         generated_by_id.setdefault(gen.entry_id, gen)
 
+    issue_size_lines, contradiction = _issue_size_lines(store, issue_size_paise)
     doc = Document()
-    _add_cover_page(doc, checklist.header, target, issue_size_paise)
+    _add_cover_page(doc, checklist.header, target, issue_size_lines, contradiction)
     doc.add_page_break()
     _add_toc_page(doc, list(grouped))
     doc.add_page_break()
@@ -136,11 +155,43 @@ def assemble(
     return out_path
 
 
+def _issue_size_lines(
+    store: FactStore | None,
+    issue_size_paise: int | None,
+) -> tuple[list[str], bool]:
+    """Cover-page issue-size lines and whether confirmed sources contradict.
+
+    With a store, live confirmed ``issue_size_paise`` facts win. Exactly one
+    distinct value keeps the plain single-line rendering; more than one
+    distinct value renders each value with its provenance detail so the
+    contradiction is a visible artefact in the exported document. Zero
+    confirmed facts (or no store) fall back to the explicit
+    ``issue_size_paise`` parameter — the original behaviour.
+    """
+    if store is not None:
+        details_by_value: dict[int, list[str]] = {}
+        for fact in store.confirmed_by_key("issue_size_paise"):
+            if isinstance(fact.value, int) and not isinstance(fact.value, bool):
+                details_by_value.setdefault(fact.value, []).append(fact.provenance.detail)
+        if len(details_by_value) == 1:
+            (value,) = details_by_value
+            return [f"Indicative issue size: {format_inr_paise(value)}"], False
+        if len(details_by_value) > 1:
+            return [
+                f"Indicative issue size: {format_inr_paise(value)} ({'; '.join(details)})"
+                for value, details in details_by_value.items()
+            ], True
+    if issue_size_paise is not None:
+        return [f"Indicative issue size: {format_inr_paise(issue_size_paise)}"], False
+    return [], False
+
+
 def _add_cover_page(
     doc: DocxDocument,
     header: ChecklistHeader,
     target: OutputTarget,
-    issue_size_paise: int | None,
+    issue_size_lines: list[str],
+    contradiction: bool,
 ) -> None:
     title = doc.add_heading(_TITLES[target], level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -159,13 +210,20 @@ def _add_cover_page(
         f"{header.regulation} — as amended through {header.amended_through} "
         f"(checklist schema {header.schema_version})",
     )
-    if issue_size_paise is not None:
+    for line in issue_size_lines:
         size_p = doc.add_paragraph()
         size_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        _add_styled_run(size_p, f"Indicative issue size: {format_inr_paise(issue_size_paise)}")
+        _add_styled_run(size_p, line)
+    if contradiction:
+        warning = doc.add_paragraph()
+        warning.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _add_styled_run(warning, CONTRADICTION_NOTICE, bold=True, color=_RED)
     notice = doc.add_paragraph()
     notice.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _add_styled_run(notice, DRAFT_NOTICE, bold=True, color=_RED, size=Pt(14))
+    disclaimer = doc.add_paragraph()
+    disclaimer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _add_styled_run(disclaimer, LEGAL_DISCLAIMER, bold=True)
 
 
 def _add_toc_page(doc: DocxDocument, section_names: list[str]) -> None:

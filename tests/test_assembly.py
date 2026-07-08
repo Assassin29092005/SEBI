@@ -9,7 +9,14 @@ from pathlib import Path
 from docx import Document
 from docx.document import Document as DocxDocument
 
-from app.assemble.docx_builder import DRAFT_NOTICE, assemble, format_inr_paise
+from app.assemble.docx_builder import (
+    CONTRADICTION_NOTICE,
+    DRAFT_NOTICE,
+    LEGAL_DISCLAIMER,
+    assemble,
+    format_inr_paise,
+)
+from app.facts import Fact, FactStore, Provenance, SourceKind
 from app.generate.sections import Citation, GeneratedSection
 from app.schema.models import (
     Checklist,
@@ -200,3 +207,90 @@ def test_issue_size_on_cover_uses_display_formatting(tmp_path: Path) -> None:
     )
     doc = Document(str(path))
     assert any("Indicative issue size: ₹24.50 crore" in t for t in _paragraph_texts(doc))
+
+
+def _issue_size_fact(value: int, kind: SourceKind, detail: str) -> Fact:
+    return Fact(
+        key="issue_size_paise",
+        value=value,
+        provenance=Provenance(kind=kind, detail=detail),
+        supplied_by=Role.PROMOTER,
+    )
+
+
+def _store_with_confirmed(*facts: Fact) -> FactStore:
+    store = FactStore()
+    for fact in facts:
+        store.add(fact)
+        store.confirm(fact.fact_id)
+    return store
+
+
+def test_store_single_confirmed_issue_size_renders_one_plain_line(tmp_path: Path) -> None:
+    store = _store_with_confirmed(
+        _issue_size_fact(24_50_00_000_00, SourceKind.WIZARD, "wizard: issue_size_paise"),
+    )
+    path = assemble(
+        _checklist(), _sections(), OutputTarget.DRHP, tmp_path / "drhp_store.docx", store=store
+    )
+    texts = _paragraph_texts(Document(str(path)))
+    size_lines = [t for t in texts if "Indicative issue size" in t]
+    assert size_lines == ["Indicative issue size: ₹24.50 crore"]
+    assert not any(CONTRADICTION_NOTICE in t for t in texts)
+
+
+def test_store_contradiction_renders_both_values_and_bold_red_callout(tmp_path: Path) -> None:
+    store = _store_with_confirmed(
+        _issue_size_fact(24_50_00_000_00, SourceKind.WIZARD, "wizard: issue_size_paise"),
+        _issue_size_fact(26_00_00_000_00, SourceKind.DOCUMENT, "bank_sanction_letter.txt p.1"),
+    )
+    path = assemble(
+        _checklist(), _sections(), OutputTarget.DRHP, tmp_path / "drhp_contra.docx", store=store
+    )
+    doc = Document(str(path))
+    texts = _paragraph_texts(doc)
+    assert any(
+        "Indicative issue size: ₹24.50 crore (wizard: issue_size_paise)" in t for t in texts
+    )
+    assert any(
+        "Indicative issue size: ₹26.00 crore (bank_sanction_letter.txt p.1)" in t for t in texts
+    )
+    callout_runs = [
+        run
+        for paragraph in doc.paragraphs
+        for run in paragraph.runs
+        if CONTRADICTION_NOTICE.startswith(run.text) and run.text
+    ]
+    assert callout_runs, "expected the contradiction callout on the cover"
+    for run in callout_runs:
+        assert run.bold is True
+        assert run.font.color.rgb is not None  # visually distinct (red)
+
+
+def test_store_with_no_confirmed_issue_size_omits_the_line(tmp_path: Path) -> None:
+    store = FactStore()
+    store.add(  # present but never confirmed — must not leak onto the cover
+        _issue_size_fact(24_50_00_000_00, SourceKind.WIZARD, "wizard: issue_size_paise")
+    )
+    path = assemble(
+        _checklist(), _sections(), OutputTarget.DRHP, tmp_path / "drhp_empty.docx", store=store
+    )
+    texts = _paragraph_texts(Document(str(path)))
+    assert not any("Indicative issue size" in t for t in texts)
+    assert not any(CONTRADICTION_NOTICE in t for t in texts)
+
+
+def test_legal_disclaimer_bold_on_both_covers(tmp_path: Path) -> None:
+    drhp, abridged = _assemble_both(tmp_path)
+    for doc in (drhp, abridged):
+        texts = _paragraph_texts(doc)
+        assert any(LEGAL_DISCLAIMER in t for t in texts)
+        assert any(DRAFT_NOTICE in t for t in texts)  # existing notice kept alongside
+        disclaimer_runs = [
+            run
+            for paragraph in doc.paragraphs
+            for run in paragraph.runs
+            if run.text and LEGAL_DISCLAIMER.startswith(run.text)
+        ]
+        assert disclaimer_runs, "expected the legal disclaimer on the cover"
+        assert all(run.bold is True for run in disclaimer_runs)
