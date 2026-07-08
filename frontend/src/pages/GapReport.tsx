@@ -129,7 +129,7 @@ function SeverityBadge({ severity }: { severity: Severity }) {
 function ClauseChip({ clauseRef }: { clauseRef: string }) {
   return (
     <span
-      className="inline-block rounded border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-700"
+      className="inline-block max-w-full break-words whitespace-normal rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
       title={clauseRef}
     >
       {clauseRef}
@@ -139,20 +139,20 @@ function ClauseChip({ clauseRef }: { clauseRef: string }) {
 
 function GapRow({ gap }: { gap: Gap }) {
   return (
-    <li className="flex flex-col gap-1 border-t border-gray-100 py-3 first:border-t-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+    <li className="flex flex-col gap-2 border-t border-gray-100 py-3 first:border-t-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-gray-900">{gap.section}</div>
         <div
-          className="mt-0.5 text-sm text-gray-700"
+          className="mt-0.5 text-sm text-gray-700 break-words"
           title={gap.missing_fact_key}
         >
           {humaniseFactKey(gap.missing_fact_key)}
         </div>
-        <div className="mt-1 text-xs text-gray-500" title={gap.entry_id}>
+        <div className="mt-1 text-xs text-gray-500 break-words" title={gap.entry_id}>
           Requirement: <span className="font-mono">{gap.entry_id}</span>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div className="flex w-full shrink-0 flex-wrap items-start gap-2 sm:w-64 sm:justify-end md:w-72">
         <ClauseChip clauseRef={gap.clause_ref} />
         <SeverityBadge severity={gap.severity} />
       </div>

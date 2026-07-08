@@ -20,6 +20,8 @@ python backend/scripts/seed_demo.py [--with-uploads]  # push data/demo_company/ 
 
 Tests default to the deterministic (non-LLM) path — an autouse `conftest.py` fixture blanks the API keys so the suite never depends on live Gemini/Groq quota. Opt a specific test into real network calls with `@pytest.mark.live_llm`.
 
+`.env` is optional. The demo and every user-facing feature run key-free — every LLM path (`extract_facts`, `generate_section`, `examine`, contradiction refinement) catches `LLMUnavailable` from `app.llm.client.grounded_complete` and continues on a deterministic implementation. See README.md § "The whole system runs without any API key" for the per-feature fallback table.
+
 Frontend (from `frontend/`):
 
 ```bash

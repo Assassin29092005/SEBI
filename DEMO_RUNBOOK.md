@@ -16,8 +16,11 @@ npm install
 npm run dev                                              # Vite dev server proxies /api → :8000
 
 # 3. Optional: an LLM key in .env (Gemini or Groq free tier).
-#    THE DEMO WORKS OFFLINE. The examiner is thinner without a key; everything
-#    else runs the deterministic path.
+#    THE DEMO WORKS OFFLINE. Every LLM-dependent feature has a deterministic
+#    fallback (see README.md § "The whole system runs without any API key").
+#    Zero keys → the examiner is thinner and generation prose is more
+#    templated, but the arc, guarantees, and the planted contradiction all
+#    fire identically.
 cp .env.example .env
 
 # 4. Sanity checks (should print all green):
