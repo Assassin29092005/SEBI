@@ -47,6 +47,12 @@ export type SourceKind = "wizard" | "document" | "lookup" | "role_upload";
 export type SectionState = "draft" | "reviewed" | "certified";
 export type GateResult = "pass" | "fail";
 export type ClaimKind = "number" | "entity" | "date";
+// Mirrors FindingKind in backend/app/validate/arithmetic.py (a strict Literal).
+export type ArithmeticFindingKind =
+  | "objects_overallocated"
+  | "unallocated_proceeds"
+  | "gcp_cap_breach"
+  | "missing_inputs";
 
 // --------------------------------------------------------------------------
 // Facts + provenance (backend/app/facts.py)
@@ -179,6 +185,17 @@ export interface Objection {
   objection: string;
   clause_ref: string | null;
   resolved: boolean;
+}
+
+// Objects-of-the-Issue arithmetic check (backend/app/validate/arithmetic.py).
+// Deterministic integer arithmetic over confirmed facts — no LLM involved.
+export interface ArithmeticFinding {
+  kind: ArithmeticFindingKind;
+  detail: string; // human sentence; figures pre-formatted in lakh/crore
+  expected_paise: number | null;
+  actual_paise: number | null;
+  severity: Severity; // backend FindingSeverity is the same literal set
+  clause_ref: string | null;
 }
 
 // --------------------------------------------------------------------------
@@ -371,6 +388,9 @@ export const getContradictions = (): Promise<Contradiction[]> =>
 export const getBoilerplate = (): Promise<BoilerplateFlag[]> =>
   apiGet<BoilerplateFlag[]>("/api/validate/boilerplate");
 
+export const getArithmetic = (): Promise<ArithmeticFinding[]> =>
+  apiGet<ArithmeticFinding[]>("/api/validate/arithmetic");
+
 export const getExaminer = (): Promise<Objection[]> =>
   apiGet<Objection[]>("/api/validate/examiner");
 
@@ -380,6 +400,10 @@ export const getCoverage = (): Promise<CoverageReport> =>
 
 export const getCoverageBenchmark = (): Promise<BenchmarkReport> =>
   apiGet<BenchmarkReport>("/api/coverage/benchmark");
+
+// Alias for the same endpoint — kept so pages can import the shorter name
+// without breaking existing getCoverageBenchmark call sites.
+export const getBenchmark: () => Promise<BenchmarkReport> = getCoverageBenchmark;
 
 // Gaps
 export const getGaps = (): Promise<GapReport> => apiGet<GapReport>("/api/gaps");
@@ -401,6 +425,26 @@ export const exportPackage = (): Promise<ExportResponse> =>
 // Not fetched here because the response is a .docx binary, not JSON.
 export const assembleUrl = (target: OutputTarget): string =>
   `/api/assemble/${encodeURIComponent(target)}`;
+
+// Exchange-ready bundle (ZIP: both .docx targets + the full audit trail).
+// Like assembleUrl, a plain <a href> download target — the response is binary.
+export const bundleUrl = (): string => "/api/export/bundle";
+
+/**
+ * Pre-flight the bundle download. GET /api/export/bundle is gated by the
+ * certification lock and answers 409 until every blocker-severity section is
+ * certified — a bare <a> click would surface that as a broken download, so
+ * call this first and show the thrown error instead. Uses GET (FastAPI routes
+ * do not answer HEAD) and cancels the body stream immediately so the ZIP is
+ * never actually transferred; throws the same "METHOD path → status" Error
+ * shape as apiGet/apiPost.
+ */
+export async function exportBundleCheck(): Promise<void> {
+  const path = bundleUrl();
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  await res.body?.cancel();
+}
 
 // --------------------------------------------------------------------------
 // Money formatter (display layer ONLY — money is integer paise everywhere else)

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   advanceSection,
+  bundleUrl,
   exportPackage,
+  getArithmetic,
+  getContradictions,
   getReviewState,
   getSchema,
   getSections,
@@ -103,6 +106,15 @@ export default function BankerDashboard() {
   const [exportLockMessage, setExportLockMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Open validation findings (contradictions + arithmetic). Fetched on mount,
+  // strictly non-blocking: if either endpoint fails this stays null and the
+  // summary card simply does not render — the certification workflow must
+  // never depend on the validation endpoints being up.
+  const [findingCounts, setFindingCounts] = useState<{
+    contradictions: number;
+    arithmetic: number;
+  } | null>(null);
+
   // ----------------------------------------------------------------------
   // Initial load: schema + review state + generated sections in parallel.
   // ----------------------------------------------------------------------
@@ -128,6 +140,29 @@ export default function BankerDashboard() {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [contradictions, arithmetic] = await Promise.all([
+          getContradictions(),
+          getArithmetic(),
+        ]);
+        if (!cancelled) {
+          setFindingCounts({
+            contradictions: contradictions.length,
+            arithmetic: arithmetic.length,
+          });
+        }
+      } catch {
+        // Deliberately swallowed — see the findingCounts state comment.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ----------------------------------------------------------------------
   // Derived: only entries the tool is actually responsible for (non-stub).
@@ -305,6 +340,12 @@ export default function BankerDashboard() {
 
   const totalBlockers = activeEntries.filter((e) => e.severity === "blocker").length;
   const certifiedBlockers = totalBlockers - uncertifiedBlockers.length;
+  // Same lock knowledge the backend enforces with a 409 on the bundle
+  // endpoint: every blocker-severity section must be certified.
+  const bundleLocked = uncertifiedBlockers.length > 0;
+  const openFindings = findingCounts
+    ? findingCounts.contradictions + findingCounts.arithmetic
+    : 0;
 
   return (
     <section className="space-y-8">
@@ -322,6 +363,39 @@ export default function BankerDashboard() {
           </span>
         </p>
       </header>
+
+      {/* --- Validation summary: outstanding findings before certifying -- */}
+      {findingCounts && (
+        <div
+          className={
+            "rounded border p-3 " +
+            (openFindings > 0
+              ? "border-red-300 bg-red-50"
+              : "border-emerald-200 bg-emerald-50")
+          }
+        >
+          <p
+            className={
+              "text-sm font-semibold " +
+              (openFindings > 0 ? "text-red-800" : "text-emerald-900")
+            }
+          >
+            {`Open findings: ${findingCounts.contradictions} contradiction${
+              findingCounts.contradictions === 1 ? "" : "s"
+            }, ${findingCounts.arithmetic} arithmetic`}
+          </p>
+          <p
+            className={
+              "mt-1 text-xs " +
+              (openFindings > 0 ? "text-red-700" : "text-emerald-800")
+            }
+          >
+            {openFindings > 0
+              ? "Outstanding validation findings — review them before certifying sections."
+              : "The contradiction and arithmetic checks are clean."}
+          </p>
+        </div>
+      )}
 
       {/* --- Section review table --------------------------------------- */}
       <div>
@@ -596,19 +670,57 @@ export default function BankerDashboard() {
           blocker section is certified. If any are still pending, we will tell
           you exactly which ones.
         </p>
-        <button
-          type="button"
-          onClick={() => void onExport()}
-          disabled={exporting}
-          className={
-            "mt-3 rounded px-4 py-2 text-sm font-medium text-white " +
-            (exporting
-              ? "bg-slate-400 cursor-not-allowed"
-              : "bg-emerald-700 hover:bg-emerald-800")
-          }
-        >
-          {exporting ? "Preparing package…" : "Export DRHP + abridged prospectus"}
-        </button>
+        <div className="mt-3 flex flex-wrap items-start gap-3">
+          <button
+            type="button"
+            onClick={() => void onExport()}
+            disabled={exporting}
+            className={
+              "rounded px-4 py-2 text-sm font-medium text-white " +
+              (exporting
+                ? "bg-slate-400 cursor-not-allowed"
+                : "bg-emerald-700 hover:bg-emerald-800")
+            }
+          >
+            {exporting ? "Preparing package…" : "Export DRHP + abridged prospectus"}
+          </button>
+
+          {/* Bundle download. GET /api/export/bundle answers 409 while the
+              certification lock is engaged, so the anchor only goes live when
+              the same client-side lock computation says every blocker is
+              certified — a disabled button never triggers a broken download. */}
+          <div className="max-w-md">
+            {bundleLocked ? (
+              <>
+                <button
+                  type="button"
+                  disabled
+                  className="rounded bg-slate-400 px-4 py-2 text-sm font-medium text-white cursor-not-allowed"
+                >
+                  Download exchange-ready package (.zip)
+                </button>
+                <p className="mt-1 text-xs font-medium text-amber-800">
+                  {`Certification lock: ${uncertifiedBlockers.length} blocker section${
+                    uncertifiedBlockers.length === 1 ? "" : "s"
+                  } uncertified — the package unlocks when every blocker is certified.`}
+                </p>
+              </>
+            ) : (
+              <a
+                href={bundleUrl()}
+                download
+                className="inline-block rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+              >
+                Download exchange-ready package (.zip)
+              </a>
+            )}
+            <p className="mt-1 text-xs text-slate-500">
+              Contains both draft documents, the gap report, contradiction and
+              arithmetic findings, examiner objections, the full fact
+              provenance ledger, and the review audit trail.
+            </p>
+          </div>
+        </div>
 
         {exportLockMessage && (
           <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3">
