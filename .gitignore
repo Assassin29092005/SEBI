@@ -21,6 +21,9 @@ out/
 *.docx
 !data/demo_company/**/*.docx
 
+# Session persistence snapshot (demo-grade, see backend/app/persistence.py)
+data/session/
+
 # OS / editor
 .DS_Store
 Thumbs.db

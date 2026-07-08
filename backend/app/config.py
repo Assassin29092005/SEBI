@@ -23,5 +23,8 @@ class Settings(BaseSettings):
 
     data_dir: Path = REPO_ROOT / "data"
 
+    persist_session: bool = True
+    session_dir: Path = REPO_ROOT / "data" / "session"
+
 
 settings = Settings()
