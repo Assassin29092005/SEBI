@@ -476,3 +476,25 @@ def test_session_persists_across_simulated_restart(
         # Clean slate for later tests; clears the tmp snapshot (session_dir is
         # still monkeypatched here — the real data/session/ is never touched).
         main_module.reset_state()
+
+
+def test_proposal_accept_role_tagged(fresh_app: TestClient) -> None:
+    client = fresh_app
+    proposal = {
+        "fact_key": "issue_size_paise",
+        "value": 14 * 10**9,
+        "source_file": "dd_certificate.pdf",
+        "page": 1,
+        "snippet": "Issue Size: Rs 14.00 crore",
+        "confidence": 0.9,
+    }
+    fact = client.post("/api/proposals/accept?role=banker", json=proposal).json()
+    assert fact["supplied_by"] == "banker"
+
+
+def test_validate_semantic_offline_empty(fresh_app: TestClient) -> None:
+    client = fresh_app
+    # No key configured in tests -> enrichment silently returns [].
+    resp = client.get("/api/validate/semantic")
+    assert resp.status_code == 200
+    assert resp.json() == []

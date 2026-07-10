@@ -13,6 +13,7 @@ from app.validate.contradictions import (
     cross_check,
     extract_claims,
     normalize,
+    semantic_check,
 )
 
 
@@ -199,3 +200,73 @@ def test_uncited_monetary_expression_produces_uncited_subject_claim() -> None:
     # The span points into the section text at the money expression.
     start, end = money_claims[0].text_span
     assert section.text[start:end] == money_claims[0].value
+
+
+# --------------------------------------------------------------------------
+# Semantic (free-prose) consistency pass
+# --------------------------------------------------------------------------
+
+
+def _prose_sections() -> list[GeneratedSection]:
+    return [
+        GeneratedSection(
+            entry_id="business.overview",
+            section="Business",
+            text="The company sells organic fertiliser to retail farmers.",
+            citations=[],
+            missing_facts=[],
+        ),
+        GeneratedSection(
+            entry_id="objects.use_of_proceeds",
+            section="Objects",
+            text="Proceeds fund expansion of the pesticide export division.",
+            citations=[],
+            missing_facts=[],
+        ),
+    ]
+
+
+def test_semantic_check_offline_returns_empty() -> None:
+    # No API key (autouse fixture) -> LLMUnavailable -> silent [] — enrichment, not a gate.
+    assert run(semantic_check(_prose_sections())) == []
+
+
+def test_semantic_check_drops_invented_quotes(monkeypatch: Any) -> None:
+    import app.validate.contradictions as mod
+
+    async def fake_llm(**_: Any) -> Any:
+        class R:
+            text = (
+                '[{"topic": "product line", "quotes": ['
+                '{"entry_id": "business.overview", "text": "organic fertiliser to retail farmers"},'
+                '{"entry_id": "objects.use_of_proceeds", "text": "NOT IN THE SECTION AT ALL"}]}]'
+            )
+        return R()
+
+    monkeypatch.setattr(mod, "grounded_complete", fake_llm)
+    # The invented quote is dropped; only one section remains -> no contradiction survives.
+    assert run(semantic_check(_prose_sections())) == []
+
+
+def test_semantic_check_verbatim_quotes_survive(monkeypatch: Any) -> None:
+    import app.validate.contradictions as mod
+
+    async def fake_llm(**_: Any) -> Any:
+        class R:
+            text = (
+                '[{"topic": "product line", "quotes": ['
+                '{"entry_id": "business.overview", "text": "organic fertiliser to retail farmers"},'
+                '{"entry_id": "objects.use_of_proceeds", "text": "pesticide export division"}]}]'
+            )
+        return R()
+
+    monkeypatch.setattr(mod, "grounded_complete", fake_llm)
+    result = run(semantic_check(_prose_sections()))
+    assert len(result) == 1
+    assert result[0].subject == "semantic:product line"
+    spans_ok = all(
+        _prose_sections()[0].text[c.text_span[0] : c.text_span[1]] == c.value
+        or _prose_sections()[1].text[c.text_span[0] : c.text_span[1]] == c.value
+        for c in result[0].claims
+    )
+    assert spans_ok

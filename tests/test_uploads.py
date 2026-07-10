@@ -158,3 +158,17 @@ def test_pdf_extraction_smoke_skipped_documented_limitation() -> None:
         "pre-baked fixture PDF or reportlab. Deterministic path is exercised by "
         "the .txt tests above."
     )
+
+
+def test_proposal_to_fact_role_tagged_for_auditor() -> None:
+    proposal = ExtractionProposal(
+        fact_key="issue_size_paise",
+        value=14 * 10**9,
+        source_file="restated_financials.pdf",
+        page=3,
+        snippet="Issue Size: Rs 14.00 crore",
+        confidence=0.9,
+    )
+    fact = proposal_to_fact(proposal, supplied_by=Role.AUDITOR)
+    assert fact.supplied_by is Role.AUDITOR
+    assert not fact.confirmed

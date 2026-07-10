@@ -271,3 +271,79 @@ def cross_check(claims: list[Claim]) -> list[Contradiction]:
         if len(distinct) > 1:
             contradictions.append(Contradiction(subject=subject, claims=group))
     return contradictions
+
+
+# --------------------------------------------------------------------------
+# Semantic (free-prose) consistency — optional LLM enrichment
+# --------------------------------------------------------------------------
+
+_SEMANTIC_SYSTEM = (
+    "You review draft IPO offer-document sections for factual consistency. "
+    "Find statements in DIFFERENT sections that contradict each other in prose "
+    "(not just numbers): conflicting descriptions of the business, conflicting "
+    "named entities, incompatible plans. Return STRICT JSON: a list of "
+    '{"topic": str, "quotes": [{"entry_id": str, "text": str}]} where every '
+    '"text" is a VERBATIM substring copied from that section and every list '
+    "has quotes from at least two sections. Return [] when nothing conflicts. "
+    "Never paraphrase, never invent text."
+)
+
+
+async def semantic_check(sections: list[GeneratedSection]) -> list[Contradiction]:
+    """Cross-section free-prose consistency pass (LLM enrichment only).
+
+    The numeric detector above is the primary, deterministic path. This pass
+    catches "section A says X, section B says not-X" conflicts that share no
+    fact key. Offline (LLMUnavailable) it returns [] silently — it is an
+    enrichment, never a gate. Anti-invention guard: a reported quote survives
+    only if it is a verbatim substring of the named section's text.
+    """
+    with_text = [s for s in sections if s.text.strip()]
+    if len(with_text) < 2:
+        return []
+    payload = json.dumps(
+        [{"entry_id": s.entry_id, "text": s.text} for s in with_text], ensure_ascii=False
+    )
+    fact_ids = [c.fact_id for s in with_text for c in s.citations]
+    try:
+        response = await grounded_complete(
+            system=_SEMANTIC_SYSTEM, user=payload, context_fact_ids=fact_ids, temperature=0.0
+        )
+        items = json.loads(response.text)
+        if not isinstance(items, list):
+            return []
+    except (LLMUnavailable, NotImplementedError, ValueError, TypeError):
+        return []
+
+    by_id = {s.entry_id: s for s in with_text}
+    out: list[Contradiction] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        topic = item.get("topic")
+        quotes = item.get("quotes")
+        if not isinstance(topic, str) or not isinstance(quotes, list):
+            continue
+        claims: list[Claim] = []
+        for q in quotes:
+            if not isinstance(q, dict):
+                continue
+            section = by_id.get(q.get("entry_id", ""))
+            text = q.get("text")
+            if section is None or not isinstance(text, str):
+                continue
+            start = section.text.find(text)
+            if start < 0:  # not verbatim → invented → dropped
+                continue
+            claims.append(
+                Claim(
+                    section_entry_id=section.entry_id,
+                    kind="entity",
+                    subject=f"semantic:{topic}",
+                    value=text,
+                    text_span=(start, start + len(text)),
+                )
+            )
+        if len({c.section_entry_id for c in claims}) >= 2:
+            out.append(Contradiction(subject=f"semantic:{topic}", claims=claims))
+    return out

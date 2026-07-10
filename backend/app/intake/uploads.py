@@ -297,8 +297,15 @@ async def extract_facts(filename: str, content: bytes) -> list[ExtractionProposa
     return sorted(merged.values(), key=lambda p: (p.page, p.fact_key))
 
 
-def proposal_to_fact(proposal: ExtractionProposal) -> Fact:
-    """Materialise a confirmed proposal as an unconfirmed Fact (confirmation is separate)."""
+def proposal_to_fact(
+    proposal: ExtractionProposal, supplied_by: Role = Role.PROMOTER
+) -> Fact:
+    """Materialise a confirmed proposal as an unconfirmed Fact (confirmation is separate).
+
+    ``supplied_by`` implements role-based truth: an auditor's restated
+    financials or a banker's due-diligence certificate enter under that role,
+    not silently as promoter content.
+    """
     return Fact(
         key=proposal.fact_key,
         value=proposal.value,
@@ -308,5 +315,5 @@ def proposal_to_fact(proposal: ExtractionProposal) -> Fact:
             snippet=proposal.snippet,
         ),
         confidence=proposal.confidence,
-        supplied_by=Role.PROMOTER,
+        supplied_by=supplied_by,
     )

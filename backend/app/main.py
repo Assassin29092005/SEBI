@@ -42,10 +42,16 @@ from app.intake.wizard import WizardQuestion, derive_questions
 from app.persistence import clear_snapshot, load_snapshot, restore_fact_store, save_snapshot
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
-from app.schema.models import Checklist, OutputTarget
+from app.schema.models import Checklist, OutputTarget, Role
 from app.validate.arithmetic import ArithmeticFinding, check_arithmetic
 from app.validate.boilerplate import BoilerplateFlag, detect
-from app.validate.contradictions import Claim, Contradiction, cross_check, extract_claims
+from app.validate.contradictions import (
+    Claim,
+    Contradiction,
+    cross_check,
+    extract_claims,
+    semantic_check,
+)
 from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
 
@@ -259,13 +265,16 @@ async def uploads_extract(
 
 
 @app.post("/api/proposals/accept")
-async def proposals_accept(proposal: ExtractionProposal) -> Fact:
+async def proposals_accept(
+    proposal: ExtractionProposal, role: Role = Role.PROMOTER
+) -> Fact:
     """Materialise a proposal into an unconfirmed Fact in the store.
 
     Confirmation is a separate step (POST /api/facts/{id}/confirm) — the
-    unconfirmed fact never feeds generation.
+    unconfirmed fact never feeds generation. ``role`` tags who supplied the
+    document (role-based truth: auditor/banker uploads enter as that role).
     """
-    fact = state.fact_store.add(proposal_to_fact(proposal))
+    fact = state.fact_store.add(proposal_to_fact(proposal, supplied_by=role))
     _persist()
     return fact
 
@@ -340,6 +349,12 @@ async def _examiner_objections(
 @app.get("/api/validate/contradictions")
 async def validate_contradictions() -> list[Contradiction]:
     return await _current_contradictions()
+
+
+@app.get("/api/validate/semantic")
+async def validate_semantic() -> list[Contradiction]:
+    """Free-prose cross-section consistency (LLM enrichment; [] offline)."""
+    return await semantic_check(state.generated_sections)
 
 
 @app.get("/api/validate/boilerplate")
