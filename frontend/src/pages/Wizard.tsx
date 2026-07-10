@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   acceptProposal,
   confirmFact,
@@ -213,6 +213,9 @@ export default function Wizard() {
   const [lang, setLang] = useState<Lang>("en");
   const t = UI_COPY[lang];
   const [tab, setTab] = useState<Tab>("questions");
+  // Deep-link target: /wizard?focus=<fact_key> from Gap Report / Draft markers.
+  const [searchParams] = useSearchParams();
+  const focusKey = searchParams.get("focus");
 
   // -------- Questions state --------
   const [questions, setQuestions] = useState<WizardQuestion[] | null>(null);
@@ -258,6 +261,22 @@ export default function Wizard() {
       cancelled = true;
     };
   }, [lang]);
+
+  // -------- Deep-link: scroll to the focused question once loaded --------
+  useEffect(() => {
+    if (!focusKey || !questions?.some((q) => q.fact_key === focusKey)) return;
+    setTab("questions");
+    setExpanded((prev) => ({ ...prev, [focusKey]: true }));
+    // Next frame: card exists in the DOM after the render this effect follows.
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`q-${focusKey}`);
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Transient highlight; re-render simply drops it, which is fine.
+      el.classList.add("ring-2", "ring-blue-400");
+      setTimeout(() => el.classList.remove("ring-2", "ring-blue-400"), 2500);
+    });
+  }, [focusKey, questions]);
 
   // -------- Grouping + progress --------
   const grouped = useMemo(() => {
@@ -668,7 +687,7 @@ function QuestionCard(props: QuestionCardProps) {
     state.stage === "confirmed";
 
   return (
-    <div className="rounded border bg-white p-4 shadow-sm">
+    <div id={`q-${q.fact_key}`} className="rounded border bg-white p-4 shadow-sm scroll-mt-6">
       <div className="flex items-start justify-between gap-4 mb-2">
         <p className="font-medium text-gray-900">{q.prompt}</p>
         {state.stage === "confirmed" && (

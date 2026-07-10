@@ -278,8 +278,23 @@ function ReadinessCard({ item }: { item: ReadinessItem }) {
 // The page.
 // --------------------------------------------------------------------------
 
+// Re-visits pre-fill from the last submission so the promoter never types the
+// same numbers twice. localStorage, not the fact store: eligibility runs
+// BEFORE the wizard in the journey, so there is usually no store to read yet.
+const PREFILL_KEY = "drhp_eligibility_form";
+
+function loadPrefill(): FormState {
+  try {
+    const raw = localStorage.getItem(PREFILL_KEY);
+    if (!raw) return INITIAL;
+    return { ...INITIAL, ...(JSON.parse(raw) as Partial<FormState>) };
+  } catch {
+    return INITIAL;
+  }
+}
+
 export default function Eligibility() {
-  const [form, setForm] = useState<FormState>(INITIAL);
+  const [form, setForm] = useState<FormState>(loadPrefill);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<EligibilityReport | null>(null);
@@ -303,6 +318,11 @@ export default function Eligibility() {
     try {
       const result = await postEligibility(payload);
       setReport(result);
+      try {
+        localStorage.setItem(PREFILL_KEY, JSON.stringify(form));
+      } catch {
+        // Storage full/blocked — pre-fill is a convenience, never an error.
+      }
     } catch (err) {
       setError(
         err instanceof Error

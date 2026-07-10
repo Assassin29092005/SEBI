@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   assembleUrl,
   formatPaise,
@@ -11,6 +12,7 @@ import {
   getFacts,
   getGaps,
   getSections,
+  getSemantic,
   postGenerate,
   type ArithmeticFinding,
   type BenchmarkReport,
@@ -306,7 +308,11 @@ function SectionBlock({
             return <span key={seg.key}>{seg.text}</span>;
           }
           if (seg.marker.kind === "requires") {
-            return (
+            // "[REQUIRES INPUT: <fact_key> — <role> can provide this]" → deep-link
+            // promoter-suppliable keys straight to their wizard question.
+            const m = /\[REQUIRES INPUT:\s*([^\s\]—]+)/.exec(seg.marker.label);
+            const factKey = m?.[1];
+            const chip = (
               <span
                 key={seg.key}
                 className="inline-block mx-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-xs font-medium align-middle"
@@ -314,6 +320,13 @@ function SectionBlock({
               >
                 {seg.marker.label}
               </span>
+            );
+            return factKey ? (
+              <Link key={seg.key} to={`/wizard?focus=${encodeURIComponent(factKey)}`}>
+                {chip}
+              </Link>
+            ) : (
+              chip
             );
           }
           const cite = seg.marker;
@@ -820,6 +833,8 @@ export default function DraftViewer() {
 
   const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
   const [contradictionsState, setContradictionsState] = useState<LoadState>("idle");
+  const [semantic, setSemantic] = useState<Contradiction[] | null>(null);
+  const [semanticState, setSemanticState] = useState<LoadState>("idle");
   const [boilerplate, setBoilerplate] = useState<BoilerplateFlag[] | null>(null);
   const [boilerplateState, setBoilerplateState] = useState<LoadState>("idle");
   const [objections, setObjections] = useState<Objection[] | null>(null);
@@ -920,6 +935,17 @@ export default function DraftViewer() {
       setContradictionsState("error");
     }
   }, []);
+
+  const runSemantic = async () => {
+    setSemanticState("loading");
+    try {
+      const data = await getSemantic();
+      setSemantic(data);
+      setSemanticState("ready");
+    } catch {
+      setSemanticState("error");
+    }
+  };
 
   const runBoilerplate = async () => {
     setBoilerplateState("loading");
@@ -1248,6 +1274,31 @@ export default function DraftViewer() {
                   </div>
                   {contradictions !== null ? (
                     <ContradictionsList items={contradictions} />
+                  ) : null}
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runSemantic}
+                      disabled={semanticState === "loading"}
+                    >
+                      {semanticState === "loading" ? "Checking…" : "Semantic consistency"}
+                    </button>
+                    <StatusPill state={semanticState} label="semantic" />
+                  </div>
+                  {semantic !== null ? (
+                    semantic.length > 0 ? (
+                      <ContradictionsList items={semantic} />
+                    ) : (
+                      <p className="text-xs text-gray-600">
+                        No free-prose conflicts found. (This check uses the LLM; without an
+                        API key it reports nothing — the numeric contradiction check above
+                        is the deterministic guarantee.)
+                      </p>
+                    )
                   ) : null}
                 </div>
 

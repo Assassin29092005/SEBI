@@ -367,8 +367,8 @@ export const uploadExtract = (file: File): Promise<ExtractionProposal[]> => {
   return apiUpload<ExtractionProposal[]>("/api/uploads/extract", form);
 };
 
-export const acceptProposal = (p: ExtractionProposal): Promise<Fact> =>
-  apiPost<Fact>("/api/proposals/accept", p);
+export const acceptProposal = (p: ExtractionProposal, role: Role = "promoter"): Promise<Fact> =>
+  apiPost<Fact>(`/api/proposals/accept?role=${role}`, p);
 
 // Litigation
 export const getLitigation = (entity: string): Promise<LitigationRecord[]> =>
@@ -384,6 +384,10 @@ export const getSections = (): Promise<GeneratedSection[]> =>
 // Validation
 export const getContradictions = (): Promise<Contradiction[]> =>
   apiGet<Contradiction[]>("/api/validate/contradictions");
+
+// Free-prose cross-section consistency (LLM enrichment; [] offline)
+export const getSemantic = (): Promise<Contradiction[]> =>
+  apiGet<Contradiction[]>("/api/validate/semantic");
 
 export const getBoilerplate = (): Promise<BoilerplateFlag[]> =>
   apiGet<BoilerplateFlag[]>("/api/validate/boilerplate");
