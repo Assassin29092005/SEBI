@@ -309,9 +309,12 @@ function SectionBlock({
           }
           if (seg.marker.kind === "requires") {
             // "[REQUIRES INPUT: <fact_key> — <role> can provide this]" → deep-link
-            // promoter-suppliable keys straight to their wizard question.
-            const m = /\[REQUIRES INPUT:\s*([^\s\]—]+)/.exec(seg.marker.label);
-            const factKey = m?.[1];
+            // promoter-suppliable keys straight to their wizard question. The key
+            // may end in "[]" (array-valued facts), so capture up to the em-dash
+            // rather than stopping at "]". Only promoter keys have wizard
+            // questions; other roles keep the plain chip.
+            const m = /\[REQUIRES INPUT:\s*(\S+)\s*—\s*(\w+)/.exec(seg.marker.label);
+            const factKey = m && m[2] === "promoter" ? m[1] : undefined;
             const chip = (
               <span
                 key={seg.key}

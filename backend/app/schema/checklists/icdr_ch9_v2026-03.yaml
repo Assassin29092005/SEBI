@@ -29,11 +29,21 @@
 # under one checklist item (e.g. capital_structure.share_capital_history
 # covers para (8)(A)-(B)) where a first-time SME promoter would reasonably
 # answer them together in one wizard flow.
+#
+# 2026-07-10 (v0.4.0): six entries added to close the benchmark's not_encoded
+# chapters (general.conventions_presentation, general.forward_looking_statements,
+# business.key_regulations, offering.foreign_ownership_restrictions,
+# offering.articles_provisions, other.declaration). Clause refs verified against
+# data/regulation/schedule_vi_disclosures.txt (Instructions (a)/(e)-(g);
+# para (10)(C); para (15)(B)(28); para (15)(C); para (18)(5) + the prescribed
+# "DECLARATION BY THE ISSUER" text). PENDING the line-by-line human review pass
+# that the 2026-07-03 entries received — review these six before any
+# filing-critical use.
 
 header:
   regulation: "SEBI (Issue of Capital and Disclosure Requirements) (ICDR) Regulations, 2018 — Chapter IX (SME IPOs); disclosures per Schedule VI Part A as applied by Reg. 246(2)(b); draft abridged prospectus per Schedule VI Part E as applied by Reg. 246(3)"
   amended_through: "2026-03-21"   # ICDR (Amendment) Regulations, 2026 — notified 2026-03-16
-  schema_version: "0.3.0"
+  schema_version: "0.4.0"
   reviewed_by_human: true         # human review pass completed 2026-07-03; see note above
 
 entries:
@@ -66,6 +76,42 @@ entries:
       RPT, OFS, GCP, etc.) rendered from a fixed regulatory glossary, plus
       issuer-specific terms (company name, CIN, PAN) rendered from confirmed
       facts. System-generated; not LLM-authored, so no hallucination risk.
+    applicability: always
+    required_facts:
+      - issuer_identity
+    responsible_role: system
+    severity: minor
+    output_targets: [drhp]
+
+  - id: general.conventions_presentation
+    clause_ref: "ICDR Sch. VI Part A, Instructions (a), (f)–(g) — source/basis of all statements, consistency of presentation style, single standard financial unit for currency of presentation"
+    section: "General"
+    title: "Certain conventions and presentation of financial, industry and market data"
+    description: >
+      Conventions chapter: currency of presentation (single standard financial
+      unit per Instruction (g)), financial-year convention, rounding, and the
+      source/basis discipline for industry and market data (Instruction (a) —
+      terms like "market leader" only with a citable source). Standard text
+      parameterised by issuer particulars; system-generated, no hallucination
+      risk.
+    applicability: always
+    required_facts:
+      - issuer_identity
+    responsible_role: system
+    severity: minor
+    output_targets: [drhp]
+
+  - id: general.forward_looking_statements
+    clause_ref: "ICDR Sch. VI Part A, Instruction (e) — no forward-looking statements that cannot be substantiated"
+    section: "General"
+    title: "Forward-looking statements"
+    description: >
+      The conventional forward-looking-statements chapter: identifies the
+      words that signal forward-looking statements, cautions that actual
+      results may differ materially, and states that the issuer undertakes
+      no obligation to update them. Encodes Instruction (e)'s constraint
+      that unsubstantiable forward-looking statements are prohibited.
+      Standard text; system-generated.
     applicability: always
     required_facts:
       - issuer_identity
@@ -241,6 +287,23 @@ entries:
     severity: material
     output_targets: [drhp]
 
+  - id: business.key_regulations
+    clause_ref: "ICDR Sch. VI Part A, para (10)(C) — Key Industry-Regulations (if applicable)"
+    section: "Our Business"
+    title: "Key industry regulations and policies"
+    description: >
+      The key statutes, rules and policies materially applicable to the
+      issuer's business (e.g. sector-specific control orders, environmental
+      consents, labour and tax law), described in plain language. Distinct
+      from the Government Approvals chapter: this describes the regulatory
+      framework; that lists the licences actually held.
+    applicability: always
+    required_facts:
+      - applicable_regulations[]
+    responsible_role: promoter
+    severity: material
+    output_targets: [drhp]
+
   # ── Our Management ───────────────────────────────────────────────────────
   - id: management.board_and_kmp
     clause_ref: "ICDR Sch. VI Part A, para (10)(F) — management (board, KMP, senior management)"
@@ -411,6 +474,39 @@ entries:
     severity: material
     output_targets: [drhp]
 
+  - id: offering.foreign_ownership_restrictions
+    clause_ref: "ICDR Sch. VI Part A, para (15)(B)(28) — restrictions on foreign ownership of Indian securities, if any (investment by NRIs, FPIs and other non-residents)"
+    section: "Offering Information"
+    title: "Restrictions on foreign ownership of Indian securities"
+    description: >
+      Restrictions applicable to investment in the issue by non-resident
+      Indians, foreign portfolio investors and other non-residents, under
+      FEMA and the applicable FDI policy. Largely standard regulatory text
+      parameterised by the issuer's sector; system-generated.
+    applicability: always
+    required_facts:
+      - issuer_identity
+    responsible_role: system
+    severity: minor
+    output_targets: [drhp]
+
+  - id: offering.articles_provisions
+    clause_ref: "ICDR Sch. VI Part A, para (15)(C) — main provisions of the Articles of Association (voting, dividend, lien, forfeiture, transfer/transmission, consolidation/splitting)"
+    section: "Offering Information"
+    title: "Description of equity shares and main provisions of the Articles of Association"
+    description: >
+      Main provisions of the Articles of Association: members' rights as to
+      voting and dividend, lien on shares, process for modification of
+      rights, forfeiture of shares, and restrictions on transfer,
+      transmission, consolidation or splitting of securities. Extracted from
+      the issuer's Articles — the promoter supplies or uploads the AoA.
+    applicability: always
+    required_facts:
+      - aoa_main_provisions
+    responsible_role: promoter
+    severity: material
+    output_targets: [drhp]
+
   # ── Certification (not a Sch. VI narrative section — filing requirements) ─
   - id: certification.due_diligence_certificate
     clause_ref: "ICDR Reg. 246(3) + Form A / Form G of Schedule V; site visit report annexed"
@@ -498,4 +594,26 @@ entries:
       - inspection_arrangements
     responsible_role: promoter
     severity: material
+    output_targets: [drhp]
+
+  - id: other.declaration
+    clause_ref: "ICDR Sch. VI Part A, para (18)(5) — board approval and signature by all directors, MD/Manager and CFO/head of finance, certifying disclosures true and correct; followed by the prescribed 'DECLARATION BY THE ISSUER' compliance statement"
+    section: "Other Information"
+    title: "Declaration"
+    description: >
+      The declaration page: the offer document must be approved by the board
+      and signed by all directors (including the Managing Director or
+      Manager) and the Chief Financial Officer or head of the finance
+      function, each certifying that all disclosures are true and correct,
+      together with the prescribed declaration that all relevant provisions
+      of the Companies Act, 2013 and SEBI regulations have been complied
+      with. The prescribed text is standard; the signatory block is rendered
+      from the confirmed board and KMP facts. Physical signatures happen
+      outside the tool.
+    applicability: always
+    required_facts:
+      - board_of_directors[]
+      - kmp[]
+    responsible_role: promoter
+    severity: blocker
     output_targets: [drhp]
