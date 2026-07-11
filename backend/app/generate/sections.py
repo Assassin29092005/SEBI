@@ -162,6 +162,18 @@ def _render_deterministic(
 
 _DEFINITIONS_ENTRY_ID = "general.definitions_abbreviations"
 
+# System-authored renderer for offering.terms_of_issue — computes minimum
+# application size from the chosen SME exchange. Never sent to LLM.
+_OFFERING_TERMS_ENTRY_ID = "offering.terms_of_issue"
+
+# Per exchange minimum application size (in paise).
+# BSE SME and NSE Emerge both specify Rs 1,00,000 (1 lakh) minimum application.
+_MIN_APP_SIZE_BY_EXCHANGE: dict[str, int] = {
+    "BSE SME": 10_000_000,      # ₹1 lakh = 100,000 * 100 = 10,000,000 paise
+    "NSE Emerge": 10_000_000,   # ₹1 lakh
+}
+_DEFAULT_MIN_APP_SIZE_PAISE = 10_000_000  # ₹1 lakh fallback
+
 # Standard conventional/general and issue-related terms. Not derived from any
 # fact — these are fixed statutory definitions, the same for every issuer.
 _STANDARD_GLOSSARY: tuple[tuple[str, str], ...] = (
@@ -213,6 +225,78 @@ def _render_definitions_abbreviations(
         offset += len(sentence) + 1
     for key in missing:
         lines.append(requires_input_marker(key, entry.responsible_role.value))
+    return GeneratedSection(
+        entry_id=entry.id,
+        section=entry.section,
+        text="\n".join(lines),
+        citations=citations,
+        missing_facts=list(missing),
+    )
+
+
+# Minimum application size by SME exchange (in paise)
+# BSE SME and NSE Emerge both require minimum application of Rs 1 lakh = 1,00,000 rupees = 10^7 paise
+_MIN_APP_SIZE_BY_EXCHANGE: dict[str, int] = {
+    "BSE SME": 10_000_000,
+    "NSE Emerge": 10_000_000,
+}
+_DEFAULT_MIN_APP_SIZE_PAISE = 10_000_000  # ₹1 lakh
+
+
+def _render_terms_of_issue(
+    entry: ChecklistEntry, facts: list[Fact], missing: list[str]
+) -> GeneratedSection:
+    """System-authored renderer for offering.terms_of_issue.
+
+    Computes minimum_application_size from the confirmed sme_exchange fact.
+    Renders a deterministic disclosure paragraph with citations.
+    """
+    # Find sme_exchange fact
+    sme_exchange_fact = next((f for f in facts if f.key == "sme_exchange"), None)
+    exchange = str(sme_exchange_fact.value) if sme_exchange_fact else "NSE Emerge"
+    min_app_size = _MIN_APP_SIZE_BY_EXCHANGE.get(exchange, _DEFAULT_MIN_APP_SIZE_PAISE)
+
+    lines: list[str] = []
+    citations: list[Citation] = []
+    offset = 0
+
+    # Issue size line
+    issue_size_fact = next((f for f in facts if f.key == "issue_size_paise"), None)
+    if issue_size_fact:
+        sentence = _fact_sentence(issue_size_fact)
+        citations.append(Citation(fact_id=issue_size_fact.fact_id, text_span=(offset, offset + len(sentence))))
+        lines.append(sentence)
+        offset += len(sentence) + 1
+
+    # Price band line
+    price_band_fact = next((f for f in facts if f.key == "price_band"), None)
+    if price_band_fact:
+        sentence = _fact_sentence(price_band_fact)
+        citations.append(Citation(fact_id=price_band_fact.fact_id, text_span=(offset, offset + len(sentence))))
+        lines.append(sentence)
+        offset += len(sentence) + 1
+
+    # Minimum application size (computed from exchange)
+    min_app_text = (
+        f"Minimum application size: {format_inr_paise(min_app_size)} "
+        f"(computed from chosen SME exchange: {exchange})."
+    )
+    if sme_exchange_fact:
+        citations.append(Citation(fact_id=sme_exchange_fact.fact_id, text_span=(offset, offset + len(min_app_text))))
+    lines.append(min_app_text)
+    offset += len(min_app_text) + 1
+
+    # Means of finance line
+    mof_fact = next((f for f in facts if f.key == "means_of_finance"), None)
+    if mof_fact:
+        sentence = _fact_sentence(mof_fact)
+        citations.append(Citation(fact_id=mof_fact.fact_id, text_span=(offset, offset + len(sentence))))
+        lines.append(sentence)
+        offset += len(sentence) + 1
+
+    for key in missing:
+        lines.append(requires_input_marker(key, entry.responsible_role.value))
+
     return GeneratedSection(
         entry_id=entry.id,
         section=entry.section,
@@ -345,6 +429,10 @@ async def generate_section(entry: ChecklistEntry, store: FactStore) -> Generated
     if entry.id == _DEFINITIONS_ENTRY_ID:
         # System-authored glossary, never sent to the LLM.
         return _render_definitions_abbreviations(entry, ordered_facts, missing)
+
+    if entry.id == "offering.terms_of_issue":
+        # System-authored terms of issue; compute minimum_application_size from exchange.
+        return _render_terms_of_issue(entry, ordered_facts, missing)
 
     if not ordered_facts:
         return _render_deterministic(entry, [], missing)
