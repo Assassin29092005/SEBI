@@ -134,21 +134,14 @@ def test_gcp_above_fifteen_percent_fires_blocker() -> None:
 
 
 # --------------------------------------------------------------------------
-# Missing / unconfirmed inputs → one minor finding, then stop
+# Missing / unconfirmed inputs → no findings (gap checker covers missing facts)
 # --------------------------------------------------------------------------
 
 
-def test_missing_everything_yields_one_minor_finding_naming_both_keys() -> None:
+def test_missing_everything_yields_no_findings() -> None:
     findings = check_arithmetic(FactStore())
 
-    assert len(findings) == 1
-    finding = findings[0]
-    assert finding.kind == "missing_inputs"
-    assert finding.severity == "minor"
-    assert "issue_size_paise" in finding.detail
-    assert "objects_of_issue[]" in finding.detail
-    assert finding.expected_paise is None
-    assert finding.actual_paise is None
+    assert findings == []
 
 
 def test_unconfirmed_facts_do_not_feed_the_check() -> None:
@@ -166,10 +159,7 @@ def test_unconfirmed_facts_do_not_feed_the_check() -> None:
 
     findings = check_arithmetic(store)
 
-    assert len(findings) == 1
-    assert findings[0].kind == "missing_inputs"
-    assert "objects_of_issue[]" in findings[0].detail
-    assert "issue_size_paise" not in findings[0].detail
+    assert findings == []
 
 
 # --------------------------------------------------------------------------
