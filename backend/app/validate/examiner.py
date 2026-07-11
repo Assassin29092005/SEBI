@@ -371,7 +371,7 @@ async def _llm_pass(
             temperature=0.0,
         )
     except _LLM_SKIP_ERRORS:
-        logger.info("examiner: LLM unavailable; deterministic objections only")
+        logger.warning("examiner: LLM unavailable; deterministic objections only")
         return []
 
     known_entry_ids = {section.entry_id for section in sections}
