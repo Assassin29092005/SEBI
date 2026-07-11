@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   advanceSection,
+  acceptProposal,
   bundleUrl,
+  confirmFact,
   exportPackage,
   getArithmetic,
   getContradictions,
@@ -13,6 +15,7 @@ import {
   type Checklist,
   type ChecklistEntry,
   type ExportResponse,
+  type ExtractionProposal,
   type GeneratedSection,
   type ReviewState,
   type SectionState,
@@ -81,6 +84,196 @@ const EMPTY_EDIT: EditFormState = {
   before: "",
   after: "",
 };
+
+// --------------------------------------------------------------------------
+// Due-diligence certificate upload (banker role)
+// --------------------------------------------------------------------------
+
+interface DueDiligenceUploadProps {
+  reviewState: ReviewState | null;
+  onUploadComplete: () => void;
+}
+
+type ProposalStage = "pending" | "accepting" | "confirming" | "confirmed" | "rejected" | "error";
+
+interface ProposalState {
+  stage: ProposalStage;
+  error?: string;
+}
+
+function DueDiligenceUpload({ reviewState, onUploadComplete }: DueDiligenceUploadProps) {
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<ExtractionProposal[]>([]);
+  const [proposalStates, setProposalStates] = useState<Record<number, ProposalState>>({});
+  const [certified, setCertified] = useState<boolean>(false);
+
+  // Check if already certified in review state
+  useEffect(() => {
+    if (reviewState?.states["certification.due_diligence_certificate"] === "certified") {
+      setCertified(true);
+    }
+  }, [reviewState]);
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    setUploadError(null);
+    setProposals([]);
+    setProposalStates({});
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/uploads/extract", { method: "POST", body: form });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      const data: ExtractionProposal[] = await res.json();
+      setProposals(data);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAccept = async (idx: number, proposal: ExtractionProposal) => {
+    setProposalStates((prev) => ({ ...prev, [idx]: { stage: "accepting" } }));
+    try {
+      const fact = await acceptProposal(proposal, "banker");
+      setProposalStates((prev) => ({ ...prev, [idx]: { stage: "confirming" } }));
+      await confirmFact(fact.fact_id);
+      setProposalStates((prev) => ({ ...prev, [idx]: { stage: "confirmed" } }));
+      onUploadComplete(); // refresh review state
+    } catch (err) {
+      setProposalStates((prev) => ({ ...prev, [idx]: { stage: "error", error: err instanceof Error ? err.message : "Failed" } }));
+    }
+  };
+
+  const handleReject = (idx: number) => {
+    setProposalStates((prev) => ({ ...prev, [idx]: { stage: "rejected" } }));
+  };
+
+  if (certified) {
+    return (
+      <div className="rounded bg-emerald-50 border border-emerald-200 p-4">
+        <div className="flex items-center gap-2">
+          <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="font-medium text-emerald-900">Due-diligence certificate already certified</span>
+        </div>
+        <p className="text-sm text-emerald-800 mt-1">
+          This section is certified in the review workflow. No further upload needed.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <label className="inline-flex items-center gap-3 cursor-pointer">
+        <span className="rounded bg-blue-600 text-white text-sm px-3 py-1.5 hover:bg-blue-700">
+          Choose file
+        </span>
+        <input
+          type="file"
+          className="hidden"
+          disabled={uploading}
+          accept=".pdf,.txt"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleUpload(file);
+            e.target.value = "";
+          }}
+        />
+        {uploading && <span className="text-sm text-slate-500">Extracting…</span>}
+        {uploadError && (
+          <span className="text-sm text-red-700">Error: {uploadError}</span>
+        )}
+      </label>
+
+      {proposals.length > 0 && (
+        <div className="space-y-3">
+          {proposals.map((p, idx) => {
+            const state = proposalStates[idx] ?? { stage: "pending" };
+            const isMoney = p.fact_key.endsWith("_paise");
+            const displayValue =
+              isMoney && typeof p.value === "number" && Number.isInteger(p.value)
+                ? `₹${(p.value / 100).toLocaleString("en-IN")}`
+                : String(p.value);
+
+            return (
+              <div key={`${p.fact_key}-${idx}`} className="rounded border bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">{p.fact_key}</p>
+                    <p className="text-lg font-semibold text-slate-900">{displayValue}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full text-xs px-2 py-0.5 ${
+                    state.stage === "confirmed" ? "bg-emerald-100 text-emerald-800" :
+                    state.stage === "rejected" ? "bg-slate-100 text-slate-500" :
+                    state.stage === "error" ? "bg-red-100 text-red-800" :
+                    "bg-amber-100 text-amber-800"
+                  }`}>
+                    {state.stage === "pending" ? "Pending" :
+                     state.stage === "accepting" ? "Accepting…" :
+                     state.stage === "confirming" ? "Confirming…" :
+                     state.stage === "confirmed" ? "Confirmed" :
+                     state.stage === "rejected" ? "Rejected" : "Error"}
+                  </span>
+                </div>
+
+                <div className="rounded bg-yellow-50 border border-yellow-200 p-3 text-sm text-slate-800">
+                  <p className="mb-1 text-xs text-slate-600">
+                    Found on page {p.page} · {p.source_file}
+                  </p>
+                  <p className="italic">"{p.snippet}"</p>
+                </div>
+
+                {state.stage === "confirmed" && (
+                  <p className="mt-3 text-sm text-emerald-800">Confirmed and added to fact store.</p>
+                )}
+                {state.stage === "rejected" && (
+                  <p className="mt-3 text-sm text-slate-500">Discarded. This value will not enter the draft.</p>
+                )}
+                {state.stage === "error" && state.error && (
+                  <p className="mt-3 text-sm text-red-700">Error: {state.error}</p>
+                )}
+
+                {(() => {
+                  const st = state.stage as ProposalStage;
+                  if (st !== "pending" && st !== "error") return null;
+                  return (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAccept(idx, p)}
+                        // @ts-ignore: TypeScript narrows state.stage in outer scope
+                        disabled={st === "accepting" || st === "confirming"}
+                        className="rounded bg-emerald-600 text-white text-sm px-3 py-1.5 hover:bg-emerald-700 disabled:bg-emerald-400"
+                      >
+                        Confirm this fact
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReject(idx)}
+                        // @ts-ignore: TypeScript narrows state.stage in outer scope
+                        disabled={st === "accepting" || st === "confirming"}
+                        className="rounded border text-sm px-3 py-1.5 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  );
+                })()}
+                {state.stage === "accepting" && <p className="mt-3 text-sm text-slate-500">Accepting…</p>}
+                {state.stage === "confirming" && <p className="mt-3 text-sm text-slate-500">Confirming…</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function BankerDashboard() {
   const [checklist, setChecklist] = useState<Checklist | null>(null);
@@ -164,8 +357,8 @@ export default function BankerDashboard() {
     };
   }, []);
 
-  // ----------------------------------------------------------------------
-  // Derived: only entries the tool is actually responsible for (non-stub).
+// ----------------------------------------------------------------------
+// Derived: only entries the tool is actually responsible for (non-stub).
   // Blocker entries first, then material, then minor — matches how the
   // banker would triage the certification queue.
   // ----------------------------------------------------------------------
@@ -660,6 +853,21 @@ export default function BankerDashboard() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* --- Due-diligence certificate upload (banker role) --------------- */}
+      <div className="rounded border border-slate-200 bg-white p-4">
+        <h2 className="text-lg font-semibold mb-2">Due-diligence certificate</h2>
+        <p className="text-sm text-slate-600 mb-4">
+          Upload the lead manager&apos;s due-diligence certificate (Form A / Form G
+          with site visit report) as required by ICDR Reg. 246(3). This is a
+          blocker-severity requirement — the certification lock cannot be cleared
+          without it.
+        </p>
+        <DueDiligenceUpload
+          reviewState={reviewState}
+          onUploadComplete={loadAll}
+        />
       </div>
 
       {/* --- Export + certification lock -------------------------------- */}
