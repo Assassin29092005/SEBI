@@ -36,7 +36,7 @@ _GCP_CAP_PERCENT = 15
 _UNALLOCATED_TOLERANCE_PERCENT = 5
 
 FindingKind = Literal[
-    "objects_overallocated", "unallocated_proceeds", "gcp_cap_breach", "missing_inputs"
+    "objects_overallocated", "unallocated_proceeds", "gcp_cap_breach"
 ]
 FindingSeverity = Literal["blocker", "material", "minor"]
 
@@ -128,7 +128,8 @@ def check_arithmetic(store: FactStore) -> list[ArithmeticFinding]:
     """Validate Objects-of-the-Issue arithmetic against confirmed facts only.
 
     Unconfirmed facts never feed validation, exactly as they never feed
-    generation. Returns an empty list when the numbers tie out.
+    generation. Returns an empty list when the numbers tie out or when
+    required inputs are not yet confirmed (the gap report covers missing facts).
     """
     issue_size_values = sorted(
         {
@@ -139,25 +140,8 @@ def check_arithmetic(store: FactStore) -> list[ArithmeticFinding]:
     )
     objects_facts = store.confirmed_by_key("objects_of_issue[]")
 
-    missing = [
-        key
-        for key, present in (
-            ("issue_size_paise", bool(issue_size_values)),
-            ("objects_of_issue[]", bool(objects_facts)),
-        )
-        if not present
-    ]
-    if missing:
-        return [
-            ArithmeticFinding(
-                kind="missing_inputs",
-                detail=(
-                    "Objects-of-the-issue arithmetic could not be checked: no confirmed "
-                    f"value for {' or '.join(missing)}."
-                ),
-                severity="minor",
-            )
-        ]
+    if not issue_size_values or not objects_facts:
+        return []
 
     gcp_values = [
         paise
