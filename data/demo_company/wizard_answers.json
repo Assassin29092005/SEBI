@@ -1,11 +1,4 @@
 {
-  "aoa_main_provisions": "The Articles of Association provide that every member has one vote per equity share held; dividends are declared by the members in general meeting not exceeding the amount recommended by the Board; the company has a first and paramount lien on partly paid shares for unpaid calls; shares may be forfeited for non-payment of calls after notice; and shares are freely transferable subject to the provisions of the Companies Act 2013, with the Board empowered to decline registration only on grounds permitted by law.",
-  "applicable_regulations[]": [
-    {"regulation": "Fertiliser (Inorganic, Organic or Mixed) (Control) Order, 1985", "relevance": "Manufacture and sale of bio-fertilisers and micronutrient blends requires registration and licensing under the FCO."},
-    {"regulation": "Water (Prevention and Control of Pollution) Act, 1974 and Air (Prevention and Control of Pollution) Act, 1981", "relevance": "Consent to establish and operate the Nashik manufacturing unit from the Maharashtra Pollution Control Board."},
-    {"regulation": "Food Safety and Standards Act, 2006", "relevance": "FSSAI licensing for micronutrient blends intended for the horticulture food chain."},
-    {"regulation": "Insecticides Act, 1968", "relevance": "Applicable to any bio-pesticide adjacent formulations distributed alongside the core product lines."}
-  ],
   "board_of_directors[]": [
     {
       "name": "Rakesh Menon",
