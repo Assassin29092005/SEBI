@@ -31,8 +31,8 @@ banker certification → exchange-ready package**. The tool:
 - Assembles the DRHP and the draft abridged prospectus (Sch. VI Part E per
   Reg. 246(3)) as `.docx` and bundles the full audit trail as a `.zip`.
 
-Benchmarked against three real filed NSE Emerge SME DRHPs: 100% in-scope
-chapter match on every one (auditor-only chapters explicitly out of scope).
+Benchmarked against three real filed NSE Emerge SME DRHPs: 80.6% in-scope
+chapter match on every one.
 
 ## Repo layout
 

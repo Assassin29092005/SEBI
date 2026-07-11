@@ -32,21 +32,21 @@ cd frontend && npm run build                             # clean
 Reset the demo cleanly between runs: kill the backend, delete
 `data/session/session.json` if present, restart. Persistence is on by default.
 
-## Key numbers (from a green build, `schema_version: 0.4.0`)
+## Key numbers (from a green build, `schema_version: 0.3.0`)
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | 166 (1 opt-in live-LLM skip) |
-| Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
+| Backend tests passing | 160 (1 opt-in live-LLM skip) |
+| Checklist entries | 26 (all non-stub, `reviewed_by_human: true`) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
-| Chapter map vs. Harit Industries Ltd | 100% (31/31 in-scope) |
-| Chapter map vs. Qualiance International Ltd | 100% (31/31 in-scope) |
-| Chapter map vs. Smartdata Enterprises (India) Ltd | 100% (31/31 in-scope) |
+| Chapter map vs. Harit Industries Ltd | 80.6% (25/31 in-scope) |
+| Chapter map vs. Qualiance International Ltd | 80.6% (25/31 in-scope) |
+| Chapter map vs. Smartdata Enterprises (India) Ltd | 80.6% (25/31 in-scope) |
 
-v0.4.0 closed the last six un-encoded chapters (conventions/presentation,
-forward-looking statements, key industry regulations, foreign-ownership
-restrictions, articles-of-association provisions, declaration). Out-of-scope
+The un-encoded chapters are the same six across all three filings and are all
+non-Chapter-IX content (forward-looking-statements boilerplate, articles of
+association excerpts, foreign-ownership legends, declaration). Out-of-scope
 chapters are auditor-supplied by law and correctly not counted.
 
 ## THE ARC (12 minutes, promoter journey first)
@@ -109,9 +109,9 @@ time."
 ### 7. Side-by-side vs. filed DRHPs (90 s)
 Expand **Benchmark vs filed DRHPs**. Tab through the three real NSE Emerge
 filings. Each shows chapter-by-chapter mapping: green chips = mapped
-checklist entries, gray = auditor content out of scope (amber would mark any
-chapter not yet encoded — as of v0.4.0 there are none). "100% in-scope match
-across three independent real filings. Not a claim — measured evidence."
+checklist entries, gray = auditor content out of scope, amber = not yet
+encoded (e.g. Forward Looking Statements). "80.6% in-scope match across three
+independent real filings. Not a claim — measured evidence."
 
 ### 8. Role switch → Merchant Banker (30 s)
 Header dropdown: Promoter → Merchant Banker. Nav filters. "Same tool, banker
@@ -178,10 +178,8 @@ Quote these faithfully — never soften them:
   court records; a real integration is an adapter behind that seam.
 - **"Who verified your schema?"** Human-reviewed against the consolidated
   ICDR text pinned in `data/regulation/`; `reviewed_by_human: true` in the
-  schema header. The six v0.4.0 entries had their clause refs verified
-  against the pinned Schedule VI text but still await the same line-by-line
-  human pass (flagged in the schema header). Not legally certified — it's a
-  faithful encoding of the regulation, not legal advice.
+  schema header. Not legally certified — it's a faithful encoding of the
+  regulation, not legal advice.
 - **"Can the extractor misread a document?"** Yes. Mitigated (not
   eliminated) by mandatory promoter confirmation against the highlighted
   source snippet, and by clickable citations on every generated sentence for

@@ -10,22 +10,6 @@
 # in plain first-time-issuer language: no jargon, no clause numbers, no acronyms
 # without a short expansion.
 
-applicable_regulations[]:
-  en:
-    prompt: "Which laws and regulations most affect how your business runs?"
-    help: "List the key statutes, rules and policies that apply to your industry — for example a control order governing your product, pollution-control consent requirements, food-safety rules, or labour laws. One line each; your merchant banker will polish the legal wording."
-  hi:
-    prompt: "कौन-से क़ानून और नियम आपके व्यवसाय के संचालन को सबसे अधिक प्रभावित करते हैं?"
-    help: "अपने उद्योग पर लागू प्रमुख क़ानून, नियम और नीतियाँ सूचीबद्ध कीजिए — जैसे आपके उत्पाद पर लागू नियंत्रण आदेश, प्रदूषण-नियंत्रण सहमति आवश्यकताएँ, खाद्य-सुरक्षा नियम, या श्रम क़ानून। प्रत्येक एक पंक्ति में; आपका मर्चेंट बैंकर क़ानूनी भाषा को परिष्कृत करेगा।"
-
-aoa_main_provisions:
-  en:
-    prompt: "Summarise the main provisions of your Articles of Association."
-    help: "The Articles of Association (AoA) is your company's internal rulebook. Cover members' voting and dividend rights, lien on shares, forfeiture, and any restrictions on transfer of shares. You can also upload the AoA and confirm the extracted summary."
-  hi:
-    prompt: "अपने संस्था के अंतर्नियम (AoA) के मुख्य प्रावधानों का सारांश दीजिए।"
-    help: "अंतर्नियम (AoA) आपकी कंपनी की आंतरिक नियम-पुस्तिका है। सदस्यों के मतदान और लाभांश अधिकार, शेयरों पर धारणाधिकार, शेयर ज़ब्ती, और शेयर हस्तांतरण पर कोई प्रतिबंध शामिल कीजिए। आप AoA अपलोड करके निकाले गए सारांश की पुष्टि भी कर सकते हैं।"
-
 board_of_directors[]:
   en:
     prompt: "Please list the members of your board of directors."
