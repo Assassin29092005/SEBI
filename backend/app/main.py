@@ -1,11 +1,20 @@
 """FastAPI app tying the pipeline together.
 
-Demo-grade wiring: a single in-process fact store, review state, and
-generated-sections cache. Auth and RBAC are production concerns — documented,
-not built. Persistence is demo-grade too: when ``settings.persist_session`` is
-on, every mutating endpoint snapshots the session to disk (one JSON file, see
-:mod:`app.persistence`) and boot rehydrates from it, so a backend restart
-mid-demo does not lose the session.
+A single in-process fact store, review state, and generated-sections cache
+(single-tenant: one deployment serves one issuer's promoter/auditor/banker
+team — see ``app.auth`` for why that's the right unit of isolation here).
+Every endpoint below requires a valid JWT bearer token (``app.auth.dependencies
+.get_current_user``); actions scoped to one role (promoter confirms facts,
+banker certifies sections) additionally depend on ``require_roles(...)`` —
+the frontend's old role dropdown was UI-only, this is server-enforced.
+Persistence is demo-grade in shape (a snapshot file, not a database) but
+real in one respect that matters: when ``settings.persist_session`` is on,
+every mutating endpoint snapshots the session to disk, **encrypted at rest**
+(see :mod:`app.crypto`), and boot rehydrates from it, so a backend restart
+mid-demo does not lose the session. (User accounts persist separately — see
+:mod:`app.auth.store` — and are unaffected by a session reset.) Uploaded
+source documents are also archived encrypted (see :mod:`app.intake.vault`)
+so a banker/auditor can retrieve the original a fact's snippet came from.
 
 State layout
 ------------
@@ -19,18 +28,24 @@ re-importing the module.
 
 from __future__ import annotations
 
+import logging
+import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from app.assemble.bundle import build_bundle
 from app.assemble.docx_builder import assemble
+from app.auth.dependencies import get_current_user, require_roles
+from app.auth.models import User
+from app.auth.router import router as auth_router
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
@@ -38,6 +53,12 @@ from app.facts import Fact, FactStore, Provenance
 from app.generate.sections import GeneratedSection, generate_all
 from app.intake.litigation import LitigationRecord, MockLitigationConnector
 from app.intake.uploads import ExtractionProposal, extract_facts, proposal_to_fact
+from app.intake.vault import (
+    ArchivedDocumentMeta,
+    archive_upload,
+    list_archived_uploads,
+    retrieve_upload,
+)
 from app.intake.wizard import WizardQuestion, derive_questions
 from app.persistence import clear_snapshot, load_snapshot, restore_fact_store, save_snapshot
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
@@ -55,6 +76,8 @@ from app.validate.contradictions import (
 from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
 
+logger = logging.getLogger("drhp.main")
+
 app = FastAPI(title="DRHP Studio", version="0.1.0")
 
 app.add_middleware(
@@ -63,6 +86,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next: Any) -> Any:
+    """Reject an oversized request before it's read into memory.
+
+    Covers every endpoint (JSON bodies, multipart uploads) via the declared
+    ``Content-Length`` header — a fast, cheap rejection that avoids buffering
+    a huge body just to throw it away. This is a fast-path only: a request
+    that lies about (or omits, e.g. chunked transfer-encoding) its
+    Content-Length is not caught here. The upload endpoint additionally
+    enforces the same limit while actually reading the file (see
+    ``_read_upload_bounded``), which is the real backstop for that one
+    high-risk surface; every other endpoint's body is tiny JSON with no
+    unbounded-read path in the first place.
+    """
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except ValueError:
+            return JSONResponse({"detail": "invalid Content-Length header"}, status_code=400)
+        if declared > settings.max_request_body_bytes:
+            return JSONResponse(
+                {
+                    "detail": (
+                        f"request body of {declared} bytes exceeds the "
+                        f"{settings.max_request_body_bytes} byte limit"
+                    )
+                },
+                status_code=413,
+            )
+    return await call_next(request)
+
+
+app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 # Assembled .docx files land here; the directory is created on demand and is
 # gitignored (see .gitignore).
@@ -124,16 +182,20 @@ def reset_state() -> AppState:
 
     Called from the test fixture before every case. Also nukes the ``out/``
     directory so ``/api/assemble/{target}`` cases can't leak files between
-    tests, and deletes the persisted session snapshot — unconditionally, NOT
+    tests, deletes the persisted session snapshot — unconditionally, NOT
     gated on ``settings.persist_session``: reset means clean slate, and tests
-    rely on a stale snapshot never rehydrating into a later run. Never touches
-    the checklist (which stays module-level).
+    rely on a stale snapshot never rehydrating into a later run — and clears
+    the archived-uploads vault for the same reason. Never touches the
+    checklist (which stays module-level) or user accounts (a session reset
+    is not an account wipe — see ``app.auth.store.reset_user_store`` for that).
     """
     global state
     state = create_state()
     clear_snapshot()
     if OUT_DIR.exists():
         shutil.rmtree(OUT_DIR, ignore_errors=True)
+    if settings.uploads_dir.exists():
+        shutil.rmtree(settings.uploads_dir, ignore_errors=True)
     return state
 
 
@@ -194,7 +256,9 @@ async def get_schema() -> Checklist:
 
 
 @app.post("/api/eligibility")
-async def eligibility(data: EligibilityInput) -> EligibilityReport:
+async def eligibility(
+    data: EligibilityInput, _user: User = Depends(require_roles(Role.PROMOTER))
+) -> EligibilityReport:
     return evaluate(data)
 
 
@@ -204,7 +268,10 @@ async def eligibility(data: EligibilityInput) -> EligibilityReport:
 
 
 @app.get("/api/wizard/questions")
-async def wizard_questions(lang: str = Query(default="en")) -> list[WizardQuestion]:
+async def wizard_questions(
+    lang: str = Query(default="en"),
+    _user: User = Depends(require_roles(Role.PROMOTER)),
+) -> list[WizardQuestion]:
     return derive_questions(checklist, lang=lang)
 
 
@@ -214,7 +281,7 @@ async def wizard_questions(lang: str = Query(default="en")) -> list[WizardQuesti
 
 
 @app.get("/api/facts")
-async def list_facts() -> list[Fact]:
+async def list_facts(_user: User = Depends(get_current_user)) -> list[Fact]:
     """Return every fact in the store — confirmed AND unconfirmed.
 
     The UI needs unconfirmed proposals visible so the promoter can act on them;
@@ -224,14 +291,22 @@ async def list_facts() -> list[Fact]:
 
 
 @app.post("/api/facts")
-async def add_fact(fact: Fact) -> Fact:
-    added = state.fact_store.add(fact)
+async def add_fact(
+    fact: Fact,
+    current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
+) -> Fact:
+    """Add a fact. ``supplied_by`` is always the caller's authenticated role —
+    role-based truth (who may lawfully supply which content) would be
+    meaningless if a client could just set this field itself."""
+    added = state.fact_store.add(fact.model_copy(update={"supplied_by": current_user.role}))
     _persist()
     return added
 
 
 @app.post("/api/facts/{fact_id}/confirm")
-async def confirm_fact(fact_id: str) -> Fact:
+async def confirm_fact(
+    fact_id: str, _user: User = Depends(require_roles(Role.PROMOTER))
+) -> Fact:
     try:
         confirmed = state.fact_store.confirm(fact_id)
     except KeyError as exc:
@@ -241,7 +316,9 @@ async def confirm_fact(fact_id: str) -> Fact:
 
 
 @app.post("/api/facts/{fact_id}/correct")
-async def correct_fact(fact_id: str, req: CorrectionRequest) -> Fact:
+async def correct_fact(
+    fact_id: str, req: CorrectionRequest, _user: User = Depends(require_roles(Role.PROMOTER))
+) -> Fact:
     try:
         corrected = state.fact_store.correct(fact_id, req.value, req.provenance)
     except KeyError as exc:
@@ -254,27 +331,108 @@ async def correct_fact(fact_id: str, req: CorrectionRequest) -> Fact:
 # Uploads / extraction / proposals
 # --------------------------------------------------------------------------
 
+_UPLOAD_CHUNK_BYTES = 1024 * 1024  # 1 MiB per read
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f]")
+
+
+async def _read_upload_bounded(file: UploadFile, limit: int) -> bytes:
+    """Read ``file`` in chunks, aborting with 413 past ``limit`` bytes.
+
+    The body-size middleware already rejects most oversized requests by
+    ``Content-Length`` before any bytes are read; this is the real backstop
+    for this endpoint specifically — it holds even if that header is absent,
+    wrong, or the multipart framing hides the true size until the file part
+    is actually streamed.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413, detail=f"upload exceeds the {limit} byte limit"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _sanitize_filename(raw: str | None) -> str:
+    """Basename-only, control-character-free, length-capped.
+
+    Nothing today uses the client-supplied filename to build a filesystem
+    path (extraction runs entirely in memory over the bytes) — but the name
+    does flow into fact provenance, generated document text, and the
+    exported audit-trail JSON, so it must not carry path syntax or control
+    characters, and can't be allowed to be unbounded. Treated as untrusted
+    display text, not a path, but sanitised as if it might become one.
+    """
+    if not raw:
+        return "upload.txt"
+    name = os.path.basename(raw.replace("\\", "/"))
+    name = _CONTROL_CHARS_RE.sub("", name).strip()
+    if not name or name in {".", ".."}:
+        return "upload.txt"
+    return name[:255]
+
 
 @app.post("/api/uploads/extract")
 async def uploads_extract(
     file: Annotated[UploadFile, File(...)],
+    current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
 ) -> list[ExtractionProposal]:
-    content = await file.read()
-    filename = file.filename or "upload.txt"
+    content = await _read_upload_bounded(file, settings.max_request_body_bytes)
+    filename = _sanitize_filename(file.filename)
+    # Archive the original, encrypted, before extraction — so a later banker/
+    # auditor review can check a fact's snippet against the real source
+    # document, not just trust the snippet text. Archiving is best-effort:
+    # a write failure here must not block the extraction the promoter is
+    # waiting on, so it's logged rather than raised.
+    try:
+        archive_upload(content, filename, file.content_type or "", current_user.role)
+    except OSError:
+        logger.warning("failed to archive upload %r — extraction proceeds anyway", filename)
     return await extract_facts(filename, content)
+
+
+@app.get("/api/uploads")
+async def list_uploads(_user: User = Depends(get_current_user)) -> list[ArchivedDocumentMeta]:
+    """Metadata for every archived source document (not the bytes — see the download route)."""
+    return list_archived_uploads()
+
+
+@app.get("/api/uploads/{document_id}")
+async def download_upload(
+    document_id: str, _user: User = Depends(get_current_user)
+) -> Response:
+    """Decrypt and stream back one archived original document."""
+    result = retrieve_upload(document_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"document not found: {document_id}")
+    meta, content = result
+    return Response(
+        content=content,
+        media_type=meta.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{meta.filename}"'},
+    )
 
 
 @app.post("/api/proposals/accept")
 async def proposals_accept(
-    proposal: ExtractionProposal, role: Role = Role.PROMOTER
+    proposal: ExtractionProposal,
+    current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
 ) -> Fact:
     """Materialise a proposal into an unconfirmed Fact in the store.
 
     Confirmation is a separate step (POST /api/facts/{id}/confirm) — the
-    unconfirmed fact never feeds generation. ``role`` tags who supplied the
-    document (role-based truth: auditor/banker uploads enter as that role).
+    unconfirmed fact never feeds generation. The supplying role (role-based
+    truth: auditor/banker uploads enter as that role) is the caller's
+    authenticated role — previously a client-supplied query param, which let
+    anyone tag their upload as coming from any role they liked.
     """
-    fact = state.fact_store.add(proposal_to_fact(proposal, supplied_by=role))
+    fact = state.fact_store.add(proposal_to_fact(proposal, supplied_by=current_user.role))
     _persist()
     return fact
 
@@ -285,7 +443,10 @@ async def proposals_accept(
 
 
 @app.get("/api/litigation")
-async def litigation(entity: str = Query(...)) -> list[LitigationRecord]:
+async def litigation(
+    entity: str = Query(..., min_length=1, max_length=200),
+    _user: User = Depends(get_current_user),
+) -> list[LitigationRecord]:
     return await state.litigation_connector.search(entity, {})
 
 
@@ -295,7 +456,7 @@ async def litigation(entity: str = Query(...)) -> list[LitigationRecord]:
 
 
 @app.post("/api/generate")
-async def generate() -> list[GeneratedSection]:
+async def generate(_user: User = Depends(require_roles(Role.PROMOTER))) -> list[GeneratedSection]:
     """Run grounded generation over the current fact store and cache the result.
 
     Cached under ``state.generated_sections``; readable via ``GET /api/sections``.
@@ -306,7 +467,7 @@ async def generate() -> list[GeneratedSection]:
 
 
 @app.get("/api/sections")
-async def sections() -> list[GeneratedSection]:
+async def sections(_user: User = Depends(get_current_user)) -> list[GeneratedSection]:
     """Return the last generated sections (empty list if never generated)."""
     return state.generated_sections
 
@@ -347,29 +508,29 @@ async def _examiner_objections(
 
 
 @app.get("/api/validate/contradictions")
-async def validate_contradictions() -> list[Contradiction]:
+async def validate_contradictions(_user: User = Depends(get_current_user)) -> list[Contradiction]:
     return await _current_contradictions()
 
 
 @app.get("/api/validate/semantic")
-async def validate_semantic() -> list[Contradiction]:
+async def validate_semantic(_user: User = Depends(get_current_user)) -> list[Contradiction]:
     """Free-prose cross-section consistency (LLM enrichment; [] offline)."""
     return await semantic_check(state.generated_sections)
 
 
 @app.get("/api/validate/boilerplate")
-async def validate_boilerplate() -> list[BoilerplateFlag]:
+async def validate_boilerplate(_user: User = Depends(get_current_user)) -> list[BoilerplateFlag]:
     return _current_boilerplate()
 
 
 @app.get("/api/validate/arithmetic")
-async def validate_arithmetic() -> list[ArithmeticFinding]:
+async def validate_arithmetic(_user: User = Depends(get_current_user)) -> list[ArithmeticFinding]:
     """Objects-of-the-Issue arithmetic over confirmed facts (deterministic, no LLM)."""
     return check_arithmetic(state.fact_store)
 
 
 @app.get("/api/validate/examiner")
-async def validate_examiner() -> list[Objection]:
+async def validate_examiner(_user: User = Depends(get_current_user)) -> list[Objection]:
     return await _examiner_objections(
         await _current_contradictions(),
         check_arithmetic(state.fact_store),
@@ -382,12 +543,12 @@ async def validate_examiner() -> list[Objection]:
 
 
 @app.get("/api/coverage")
-async def coverage() -> CoverageReport:
+async def coverage(_user: User = Depends(get_current_user)) -> CoverageReport:
     return score(checklist, state.generated_sections, store=state.fact_store)
 
 
 @app.get("/api/coverage/benchmark")
-async def coverage_benchmark() -> BenchmarkReport:
+async def coverage_benchmark(_user: User = Depends(get_current_user)) -> BenchmarkReport:
     """Schema coverage of real filed SME DRHP tables of contents (evidence, not a claim)."""
     return benchmark(checklist)
 
@@ -398,7 +559,7 @@ async def coverage_benchmark() -> BenchmarkReport:
 
 
 @app.get("/api/gaps")
-async def gaps() -> GapReport:
+async def gaps(_user: User = Depends(get_current_user)) -> GapReport:
     return check_gaps(checklist, state.fact_store)
 
 
@@ -408,12 +569,16 @@ async def gaps() -> GapReport:
 
 
 @app.get("/api/review/state")
-async def review_state_view() -> ReviewState:
+async def review_state_view(_user: User = Depends(get_current_user)) -> ReviewState:
     return state.review_state
 
 
 @app.post("/api/review/{entry_id}/advance")
-async def review_advance(entry_id: str, req: AdvanceRequest) -> ReviewState:
+async def review_advance(
+    entry_id: str, req: AdvanceRequest, _user: User = Depends(require_roles(Role.BANKER))
+) -> ReviewState:
+    """Certification is the one action the problem statement requires stay with
+    the merchant banker — the role check here is the whole point of the lock."""
     try:
         state.review_state.advance(entry_id, req.to)
     except ValueError as exc:
@@ -425,14 +590,21 @@ async def review_advance(entry_id: str, req: AdvanceRequest) -> ReviewState:
 
 
 @app.post("/api/review/edit")
-async def review_edit(edit: BankerEdit) -> ReviewState:
-    state.review_state.record_edit(edit)
+async def review_edit(
+    edit: BankerEdit, current_user: User = Depends(require_roles(Role.BANKER))
+) -> ReviewState:
+    """``editor`` is always the authenticated banker's email, not the free-text
+    value the client sent — the audit trail should be trustworthy by
+    construction, not by convention."""
+    state.review_state.record_edit(edit.model_copy(update={"editor": current_user.email}))
     _persist()
     return state.review_state
 
 
 @app.post("/api/review/export")
-async def review_export() -> ExportResponse:
+async def review_export(
+    _user: User = Depends(require_roles(Role.PROMOTER, Role.BANKER)),
+) -> ExportResponse:
     """Certification lock: refuse export until every blocker section is certified.
 
     On success both output targets (DRHP + draft abridged prospectus) are
@@ -472,13 +644,27 @@ def _assemble_target(target: OutputTarget) -> Path:
 
 
 @app.get("/api/assemble/{target}")
-async def assemble_target(target: str) -> FileResponse:
+async def assemble_target(
+    target: str, _user: User = Depends(get_current_user)
+) -> FileResponse:
+    """Serve an assembled .docx, assembling on demand if not already cached.
+
+    The certification lock only matters for the on-demand path: a file that
+    already exists in ``out/`` was necessarily produced by an authorized
+    ``POST /api/review/export`` (which already checked the lock), so
+    re-serving it is safe. Assembling fresh here — skipping that endpoint
+    entirely — must be gated the same way, or the lock would be a UI-only
+    formality rather than something the server actually enforces.
+    """
     try:
         target_enum = OutputTarget(target)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=f"unknown target: {target}") from exc
     path = _target_path(target_enum)
     if not path.exists():
+        allowed, blockers = export_allowed(checklist, state.review_state)
+        if not allowed:
+            raise HTTPException(status_code=409, detail={"blocked_by": blockers})
         _assemble_target(target_enum)
     return FileResponse(
         path=str(path),
@@ -496,7 +682,9 @@ BUNDLE_FILENAME = "drhp_studio_package.zip"
 
 
 @app.get("/api/export/bundle")
-async def export_bundle() -> FileResponse:
+async def export_bundle(
+    _user: User = Depends(require_roles(Role.PROMOTER, Role.BANKER)),
+) -> FileResponse:
     """Exchange-ready ZIP: both .docx targets plus the complete audit trail.
 
     Gated by the same certification lock as ``POST /api/review/export`` —

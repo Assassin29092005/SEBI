@@ -5,8 +5,14 @@ real API (``POST /api/facts`` then ``POST /api/facts/{id}/confirm``) so the
 confirmation step is exercised the same way the wizard exercises it — this
 is a shortcut past manual data entry, not a way around confirmation.
 
+Every endpoint now requires a bearer token (see app.auth): this script
+registers (or logs into, on a repeat run) a demo promoter account first and
+attaches the token to every request that follows.
+
 State is in-memory on the server (see app.main.AppState); restart the
-backend for a clean slate before re-seeding.
+backend for a clean slate before re-seeding. The demo promoter account
+persists across restarts (see app.auth.store) — re-running this script
+against a fresh backend logs into the same account rather than erroring.
 
 Usage (from the repo root, with the backend running on 127.0.0.1:8000):
 
@@ -29,6 +35,36 @@ import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEMO_DIR = REPO_ROOT / "data" / "demo_company"
+
+DEMO_PROMOTER_EMAIL = "promoter@sunriseagrotech.example"
+DEMO_PROMOTER_PASSWORD = "SunriseDemo!2026"  # synthetic demo account, not a real credential
+DEMO_PROMOTER_NAME = "Sunrise Agrotech Promoter"
+
+
+def _authenticate(client: httpx.Client) -> str:
+    """Register the demo promoter (idempotent) and return a bearer token.
+
+    First run on a fresh backend: registers. Any later run (backend
+    restarted, script re-invoked): the account already exists (register
+    answers 409), so this falls back to logging in.
+    """
+    register = client.post(
+        "/api/auth/register",
+        json={
+            "email": DEMO_PROMOTER_EMAIL,
+            "name": DEMO_PROMOTER_NAME,
+            "password": DEMO_PROMOTER_PASSWORD,
+            "role": "promoter",
+        },
+    )
+    if register.status_code == 200:
+        return register.json()["access_token"]
+    login = client.post(
+        "/api/auth/login",
+        json={"email": DEMO_PROMOTER_EMAIL, "password": DEMO_PROMOTER_PASSWORD},
+    )
+    login.raise_for_status()
+    return login.json()["access_token"]
 
 
 def _seed_wizard_answers(client: httpx.Client) -> int:
@@ -91,6 +127,10 @@ def main() -> None:
             print(f"Backend not reachable at {args.base_url}: {exc}", file=sys.stderr)
             print("Start it first: uvicorn app.main:app --reload", file=sys.stderr)
             raise SystemExit(1) from exc
+
+        token = _authenticate(client)
+        client.headers["Authorization"] = f"Bearer {token}"
+        print(f"Authenticated as {DEMO_PROMOTER_EMAIL} (promoter).")
 
         wizard_count = _seed_wizard_answers(client)
         print(f"Seeded and confirmed {wizard_count} wizard facts.")

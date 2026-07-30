@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ONE_CRORE_PAISE = 1_00_00_000_00          # ₹1 crore in paise
 TEN_CRORE_PAISE = 10 * ONE_CRORE_PAISE
@@ -26,11 +26,15 @@ class GateResult(StrEnum):
 class EligibilityInput(BaseModel):
     """Answers to the pre-wizard eligibility questions. Money in paise."""
 
-    # Reg. 229(1)-(2): post-issue paid-up capital ceiling
-    post_issue_paid_up_capital_paise: int
+    # Reg. 229(1)-(2): post-issue paid-up capital ceiling. Bounds below are
+    # sanity limits (reject obviously-bogus input), not business rules — the
+    # ₹25 cr eligibility ceiling itself is enforced in evaluate(), below.
+    post_issue_paid_up_capital_paise: int = Field(ge=0, le=10**15)
     # Reg. 229(6): EBITDA >= ₹1 cr in at least 2 of the last 3 FYs
-    operating_profit_years: int
-    min_operating_profit_paise: int          # lowest EBITDA among the qualifying years
+    operating_profit_years: int = Field(ge=0, le=10)
+    # lowest EBITDA among the qualifying years — can legitimately be negative
+    # (a loss-making year), so only a magnitude sanity cap applies.
+    min_operating_profit_paise: int = Field(ge=-(10**15), le=10**15)
     # Reg. 228: entities not eligible
     is_debarred_by_sebi: bool                # issuer/promoters/directors/selling shareholders
     promoter_director_of_debarred_company: bool
@@ -39,8 +43,8 @@ class EligibilityInput(BaseModel):
     has_outstanding_convertibles: bool       # other than exempt ESOPs / must-convert securities
     # Reg. 229(5): complete promoter change / >50% new promoters
     promoter_change_within_1yr: bool
-    # Reg. 230(1)(f)-(g): OFS caps
-    ofs_pct_of_issue: float                  # OFS portion as % of total issue size
+    # Reg. 230(1)(f)-(g): OFS caps — a percentage, so bounded to [0, 100].
+    ofs_pct_of_issue: float = Field(ge=0, le=100)
     # Reg. 230(1)(b)-(d): demat + fully paid-up
     promoter_shares_demat: bool
     partly_paid_shares_outstanding: bool

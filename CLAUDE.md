@@ -8,14 +8,17 @@ Backend (from repo root; package root is `backend/`, tests live in `tests/` at r
 
 ```bash
 pip install -e "backend[dev]"        # install backend + dev deps (pytest, ruff)
-python -m pytest tests/ -q           # full suite
+python -m pytest tests/ -q           # full suite (199 passed, 1 skipped)
 python -m pytest tests/test_facts.py -q            # one file
 python -m pytest tests/test_facts.py::test_confirmation_makes_fact_available  # one test
 python -m ruff check backend         # lint (line-length 100, rules E,F,I,UP,B,ANN)
 uvicorn app.main:app --reload --app-dir backend     # run the API (127.0.0.1:8000)
 python backend/scripts/seed_demo.py [--with-uploads]  # push data/demo_company/ fixtures through the
                                                        # real API (wizard answers, optionally uploads —
-                                                       # --with-uploads includes the planted contradiction)
+                                                       # --with-uploads includes the planted contradiction).
+                                                       # Registers/logs in a demo promoter account first
+                                                       # (see backend/app/auth) — the API requires a
+                                                       # bearer token on every call now.
 ```
 
 Tests default to the deterministic (non-LLM) path — an autouse `conftest.py` fixture blanks the API keys so the suite never depends on live Gemini/Groq quota. Opt a specific test into real network calls with `@pytest.mark.live_llm`.
@@ -116,6 +119,9 @@ The full version, in pipeline order:
 
 Repo layout (built):
 
+- `backend/app/crypto.py` — encryption at rest (Fernet/AES-128-CBC+HMAC), keyed by `Settings.encryption_key`. Everything that touches disk with real issuer data goes through it: the session snapshot, the user store, and archived uploads below. Same ephemeral-key-with-a-warning fallback pattern as the JWT secret.
+- `backend/app/intake/vault.py` — encrypted archive of original uploaded documents (`archive_upload` / `retrieve_upload` / `list_archived_uploads`). Extraction used to only ever hold the bytes in memory for one request, so nothing let a banker check a fact's snippet against the actual source document — this closes that gap. One `<uuid>.enc` file per upload; `GET /api/uploads` / `GET /api/uploads/{id}` in `main.py` expose it to any authenticated user, same read access as the fact store.
+- `backend/app/auth/` — real authentication + server-side RBAC: `models.py` (User/UserPublic, register/login shapes), `security.py` (PBKDF2 password hashing, JWT issue/verify), `store.py` (persisted user store, atomic-write like `persistence.py`), `dependencies.py` (`get_current_user` / `require_roles(...)` FastAPI dependencies), `router.py` (`/api/auth/register|login|me`). Promoter self-registers; auditor/banker require an invite code (`Settings.auditor_invite_code` / `banker_invite_code`) — those roles carry certification and role-tagged-upload authority. Every endpoint in `main.py` depends on one of these; the old frontend role dropdown was UI-only and is gone.
 - `backend/app/schema/` — checklist YAML + Pydantic loader/validator + `applicability.py` (evaluates conditional `has_<fact>` requirements against the fact store; unrecognised conditions default to applicable — over-disclosing is safe, silently dropping a requirement isn't).
 - `backend/app/eligibility.py` — eligibility gate rules + readiness-report generator.
 - `backend/app/intake/` — wizard question flow + `question_copy.yaml` (schema-derived, multilingual), upload handling/extraction (LLM + deterministic label-scan fallback), litigation connector (mock behind a `Protocol`, like a real integration seam).
@@ -125,7 +131,7 @@ Repo layout (built):
 - `backend/app/validate/` — gap checker, contradiction detector (extract all numeric/entity claims, cross-check), boilerplate detector, adversarial examiner agent, and `arithmetic.py` (Objects-of-Issue arithmetic: objects sum + GCP ≟ issue size, GCP cap per Reg. 230(2); handles a contradicted issue size without crashing).
 - `backend/app/review/` — banker workflow: section states, edit audit trail, certification lock.
 - `backend/app/assemble/` — python-docx DRHP + abridged prospectus assembly (cover callout when confirmed issue-size facts disagree; merchant-banker disclaimer baked in) + `bundle.py` (exchange-ready ZIP: both docx + gap/contradiction/coverage/examiner/arithmetic JSON + full fact-provenance ledger + review audit trail + manifest, gated by the certification lock).
-- `backend/app/persistence.py` — atomic JSON snapshot of the mutable app state (facts, review, cached sections) into `data/session/session.json` so a backend restart preserves the demo run. Corrupt-file-safe at boot; toggle with `settings.persist_session`.
+- `backend/app/persistence.py` — atomic, encrypted-at-rest snapshot of the mutable app state (facts, review, cached sections) into `data/session/session.enc` so a backend restart preserves the demo run. Corrupt/undecryptable-file-safe at boot; toggle with `settings.persist_session`.
 - `backend/app/coverage.py` — coverage score vs. reference filed DRHPs (real benchmark against `data/reference_drhps/`, not schema-only self-reference); auditor-only content marked out-of-scope, never silently counted.
 - `backend/app/main.py` — FastAPI app tying it together.
 - `backend/scripts/seed_demo.py` — pushes `data/demo_company/` fixtures through the real API (exercises confirmation the same way the wizard does) for fast manual testing.
@@ -188,6 +194,9 @@ Rules:
 
 ## Known Limitations (state them if asked — never hide them)
 
+- **Security hardening is real but scoped.** Request bodies are size-bounded (`Settings.max_request_body_bytes`, default 20 MB) via a global Content-Length check plus a bounded read loop on the upload endpoint specifically; uploaded filenames are sanitised (basename-only, control-character-stripped, length-capped) before they flow into provenance/exported documents; numeric/string inputs (eligibility figures, litigation query, fact keys/snippets, auth email/name/password) carry sanity bounds; the Gemini API key travels as a header (`x-goog-api-key`), never a URL query param, so it can't leak into request-URL logging. Not built: rate limiting, virus/malware scanning of uploads, a WAF — appropriate for a single-tenant deployment behind normal network controls, not a hardened multi-tenant public endpoint.
+- **Encryption at rest is single-key, no rotation.** The session snapshot, user store, and archived uploads are all encrypted (`app.crypto`, Fernet/AES-128-CBC+HMAC) — but there's one active `ENCRYPTION_KEY` with no rotation/versioning scheme and no KMS integration. Losing the key means losing everything it encrypted (by design — there's no backdoor); rotating it today means re-encrypting everything by hand. Leaving it unset is a valid *local dev* choice (falls back to a per-process random key, logged as a warning) but not a valid *production* one.
+- **Auth has no account-admin UI.** Auditor/banker registration is gated by a shared invite code (`Settings.auditor_invite_code` / `banker_invite_code`), not per-user invites from an admin console — appropriate for one issuer's small promoter/auditor/banker team, not a multi-firm SaaS. There's no password reset flow either. `JWT_SECRET_KEY` must be set in production `.env`; unset, the app falls back to a per-process random key (documented, logged as a warning) and every restart invalidates all sessions.
 - **Restated financial statements are auditor work by law.** The tool ingests and formats them; it cannot and does not generate them. The coverage score marks them out-of-scope explicitly.
 - **The litigation lookup is mocked** — there is no clean free API over Indian court records; a real integration means an adapter behind the existing connector protocol.
 - **The checklist schema is human-reviewed but not legally certified.** It's a faithful encoding of the regulation, not legal advice.
@@ -202,5 +211,5 @@ Rules:
 - Don't put real company data, real financials, or real personal identifiers in the repo — synthetic demo issuer only. Reference DRHPs in `data/reference_drhps/` are public filings used for benchmarking, not templates to copy text from (the boilerplate detector exists for a reason).
 - Don't hardcode disclosure requirements in prompts or code — everything flows from the schema.
 - Don't expand scope to main-board IPOs, rights issues, or non-Chapter-IX frameworks.
-- Don't build auth/RBAC/e-sign plumbing beyond what the demo needs — mention it in docs instead.
+- Auth/RBAC is now real (see `backend/app/auth/`) — JWT bearer tokens, hashed passwords, server-enforced role checks. Don't build e-sign plumbing or multi-tenant account admin beyond what's there — mention it in docs instead.
 - Don't chase generation eloquence at the cost of traceability — a plainly worded, fully cited section beats beautiful uncited prose.

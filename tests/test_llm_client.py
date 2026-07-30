@@ -65,7 +65,9 @@ def test_gemini_request_shape_and_response_parsing(monkeypatch: pytest.MonkeyPat
     assert request.method == "POST"
     assert request.url.host == "generativelanguage.googleapis.com"
     assert request.url.path == "/v1beta/models/gemini-2.0-flash:generateContent"
-    assert request.url.params["key"] == "test-gemini-key"
+    # The key travels as a header, not a URL query param — see GeminiProvider.complete.
+    assert "key" not in request.url.params
+    assert request.headers["x-goog-api-key"] == "test-gemini-key"
     body = json.loads(request.content)
     assert body["systemInstruction"] == {"parts": [{"text": "You are a DRHP drafter."}]}
     assert body["contents"] == [{"role": "user", "parts": [{"text": "Draft the section."}]}]

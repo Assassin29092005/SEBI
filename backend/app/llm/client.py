@@ -99,16 +99,17 @@ class GeminiProvider:
         self._http_client = http_client
 
     async def complete(self, system: str, user: str, temperature: float) -> LLMResponse:
-        url = (
-            f"{GEMINI_BASE_URL}/models/{settings.gemini_model}:generateContent"
-            f"?key={settings.gemini_api_key}"
-        )
+        # The key travels as a header, not a URL query param: query strings
+        # end up in httpx/proxy/access logs and in any exception that embeds
+        # the request URL — a header keeps the secret out of that surface.
+        url = f"{GEMINI_BASE_URL}/models/{settings.gemini_model}:generateContent"
+        headers = {"x-goog-api-key": settings.gemini_api_key}
         payload: dict[str, Any] = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {"temperature": temperature},
         }
-        response = await _request(self._http_client, url, payload)
+        response = await _request(self._http_client, url, payload, headers)
         data = response.json()
         try:
             parts = data["candidates"][0]["content"]["parts"]

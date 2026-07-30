@@ -24,6 +24,12 @@ out/
 # Session persistence snapshot (demo-grade, see backend/app/persistence.py)
 data/session/
 
+# User accounts (password hashes + salts; see backend/app/auth/store.py)
+data/auth/
+
+# Archived original uploads, encrypted at rest (see backend/app/intake/vault.py)
+data/uploads/
+
 # OS / editor
 .DS_Store
 Thumbs.db

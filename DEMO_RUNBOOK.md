@@ -21,22 +21,31 @@ npm run dev                                              # Vite dev server proxi
 #    Zero keys → the examiner is thinner and generation prose is more
 #    templated, but the arc, guarantees, and the planted contradiction all
 #    fire identically.
+#    Also set BANKER_INVITE_CODE (any string) so you can register the demo
+#    banker account in step 5 — see backend/app/auth.
 cp .env.example .env
 
 # 4. Sanity checks (should print all green):
-python -m pytest tests/ -q                               # 160 passed, 1 skipped
+python -m pytest tests/ -q                               # 199 passed, 1 skipped
 python -m ruff check backend                             # All checks passed
 cd frontend && npm run build                             # clean
+
+# 5. Register the two demo accounts you'll use on stage (frontend running,
+#    or via curl — see backend/app/auth). Promoter self-registers; banker
+#    needs the BANKER_INVITE_CODE from .env. Do this before the audience
+#    is watching — it's a one-time setup step, not part of the pitch.
 ```
 
 Reset the demo cleanly between runs: kill the backend, delete
-`data/session/session.json` if present, restart. Persistence is on by default.
+`data/session/session.enc` if present, restart. Persistence is on by
+default and accounts survive a restart (`data/auth/`, gitignored) — no need
+to re-register.
 
 ## Key numbers (from a green build, `schema_version: 0.4.0`)
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | 166 (1 opt-in live-LLM skip) |
+| Backend tests passing | 199 (1 opt-in live-LLM skip) |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -113,10 +122,11 @@ checklist entries, gray = auditor content out of scope (amber would mark any
 chapter not yet encoded — as of v0.4.0 there are none). "100% in-scope match
 across three independent real filings. Not a claim — measured evidence."
 
-### 8. Role switch → Merchant Banker (30 s)
-Header dropdown: Promoter → Merchant Banker. Nav filters. "Same tool, banker
-view — this is a demo role switch, not real auth (that's a production
-concern, documented in CLAUDE.md)."
+### 8. Sign out → sign in as Merchant Banker (30 s)
+Sign out, sign in with the banker account registered during pre-flight. Nav
+changes to the banker's view. "This is a real account with a real role check
+on the server — a promoter token literally cannot call the certify endpoint,
+you saw the 403 if you try it. Not a UI switch."
 
 ### 9. Certification lock (90 s)
 Nav → Banker Dashboard. Table of checklist entries with state
@@ -158,7 +168,7 @@ reconciles with the ₹12.5 cr wizard value inside the 5% band.
   examiner — all offline-safe. Autouse pytest fixture blanks API keys in the
   test suite; the same fallback path is what production hits when
   `LLMUnavailable` is raised.
-- **Backend crashes mid-demo:** `data/session/session.json` is written
+- **Backend crashes mid-demo:** `data/session/session.enc` is written
   atomically after every mutating endpoint. Restart uvicorn — facts, review
   state, cached sections come back. Persist knob:
   `settings.persist_session = False` disables it; session lives in
@@ -205,3 +215,11 @@ Quote these faithfully — never soften them:
 - **"The output is a filing?"** No — a draft. It becomes submittable only
   after merchant banker due diligence and certification. That is by design
   and matches SEBI's regulatory intent.
+- **"Is the role separation real, or just a UI switch?"** Real — every
+  endpoint requires a JWT bearer token, and certification/role-tagged-upload
+  actions additionally require the token's role to match (see
+  `backend/app/auth/`). A promoter account gets a 403 from the certify
+  endpoint, not just a hidden button. What's not built: an account-admin UI
+  (auditor/banker registration uses a shared invite code, not per-user
+  invites) and password reset — appropriate for one issuer's small team, not
+  a multi-firm SaaS yet.
