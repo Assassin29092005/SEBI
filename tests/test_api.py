@@ -222,6 +222,59 @@ def test_facts_crud_add_confirm_correct(fresh_app: TestClient) -> None:
     assert corrected["provenance"]["supersedes"] == fact_id
 
 
+def test_confirm_and_correct_are_scoped_to_the_supplying_role(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    """A banker may confirm/correct their own banker-sourced fact, but not a
+    promoter-sourced one, and vice versa — role-based truth applied to the
+    confirmation step itself (see the due-diligence-upload flow)."""
+    banker_fact = fresh_app.post(
+        "/api/facts",
+        json={
+            "key": "due_diligence_certificate",
+            "value": "Certified per Reg. 246",
+            "provenance": {"kind": "wizard", "detail": "banker upload"},
+            "supplied_by": "banker",
+        },
+        headers=banker_headers,
+    ).json()
+
+    # The promoter (fresh_app's default identity) cannot confirm it.
+    denied = fresh_app.post(f"/api/facts/{banker_fact['fact_id']}/confirm")
+    assert denied.status_code == 403
+
+    # The banker who supplied it can.
+    confirmed = fresh_app.post(
+        f"/api/facts/{banker_fact['fact_id']}/confirm", headers=banker_headers
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["confirmed"] is True
+
+    # Symmetric check: the banker cannot confirm a promoter-sourced fact.
+    promoter_fact_id = _seed_fact(
+        fresh_app, key="issuer_identity", value="Sunrise Agrotech Ltd",
+        detail="wizard:issuer_identity", confirmed=False,
+    )
+    denied_other_way = fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/confirm", headers=banker_headers
+    )
+    assert denied_other_way.status_code == 403
+
+    # And correction follows the same rule.
+    correction = {
+        "value": "Certified per Reg. 246 (revised)",
+        "provenance": {"kind": "wizard", "detail": "banker upload (revised)"},
+    }
+    promoter_tries_to_correct_banker_fact = fresh_app.post(
+        f"/api/facts/{banker_fact['fact_id']}/correct", json=correction
+    )
+    assert promoter_tries_to_correct_banker_fact.status_code == 403
+    banker_corrects_own_fact = fresh_app.post(
+        f"/api/facts/{banker_fact['fact_id']}/correct", json=correction, headers=banker_headers
+    )
+    assert banker_corrects_own_fact.status_code == 200, banker_corrects_own_fact.text
+
+
 def test_uploads_extract_txt_payload(fresh_app: TestClient) -> None:
     body = b"Issue Size: Rs 14.00 crore\nSme Exchange: NSE Emerge\n"
     resp = fresh_app.post(

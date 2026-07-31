@@ -26,7 +26,7 @@ npm run dev                                              # Vite dev server proxi
 cp .env.example .env
 
 # 4. Sanity checks (should print all green):
-python -m pytest tests/ -q                               # 199 passed, 1 skipped
+python -m pytest tests/ -q                               # 200 passed, 1 skipped
 python -m ruff check backend                             # All checks passed
 cd frontend && npm run build                             # clean
 
@@ -45,7 +45,7 @@ to re-register.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | 199 (1 opt-in live-LLM skip) |
+| Backend tests passing | 200 (1 opt-in live-LLM skip) |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |

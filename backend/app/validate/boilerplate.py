@@ -122,14 +122,30 @@ def _tokenise_positions(text: str) -> list[tuple[str, int, int]]:
     return tokens
 
 
+_reference_ngrams_cache: dict[Path, set[tuple[str, ...]]] = {}
+
+
 def _reference_ngrams(directory: Path) -> set[tuple[str, ...]]:
     """Set of 8-word tuples across every ``*.txt`` under ``directory``.
+
+    Cached per directory for the process lifetime: the reference corpus is
+    static, checked-in reference filings (real filed DRHPs run tens of
+    thousands of lines each), and re-tokenising all of it on every single
+    ``detect()`` call — one call per generated section — turned a full
+    validation pass into minutes instead of seconds. Tests that monkeypatch
+    ``REFERENCE_DRHPS_DIR`` to a fresh ``tmp_path`` per case get their own
+    cache entry, so test isolation is unaffected; picking up a newly added
+    reference filing in a long-running process needs a restart, same as the
+    checklist schema (also loaded once at import time).
 
     Offline-demo default: if the directory doesn't exist or has no ``.txt``
     files, returns an empty set silently — the 8-gram pass then no-ops.
     """
+    if directory in _reference_ngrams_cache:
+        return _reference_ngrams_cache[directory]
     ngrams: set[tuple[str, ...]] = set()
     if not directory.exists() or not directory.is_dir():
+        _reference_ngrams_cache[directory] = ngrams
         return ngrams
     for path in sorted(directory.rglob("*.txt")):
         try:
@@ -141,6 +157,7 @@ def _reference_ngrams(directory: Path) -> set[tuple[str, ...]]:
             continue
         for i in range(len(tokens) - _NGRAM_SIZE + 1):
             ngrams.add(tuple(tokens[i : i + _NGRAM_SIZE]))
+    _reference_ngrams_cache[directory] = ngrams
     return ngrams
 
 

@@ -4,9 +4,10 @@ A single in-process fact store, review state, and generated-sections cache
 (single-tenant: one deployment serves one issuer's promoter/auditor/banker
 team — see ``app.auth`` for why that's the right unit of isolation here).
 Every endpoint below requires a valid JWT bearer token (``app.auth.dependencies
-.get_current_user``); actions scoped to one role (promoter confirms facts,
-banker certifies sections) additionally depend on ``require_roles(...)`` —
-the frontend's old role dropdown was UI-only, this is server-enforced.
+.get_current_user``); actions scoped to one role (confirming/correcting a
+fact is scoped to whoever supplied it, certifying a section is banker-only)
+additionally depend on ``require_roles(...)`` — the frontend's old role
+dropdown was UI-only, this is server-enforced.
 Persistence is demo-grade in shape (a snapshot file, not a database) but
 real in one respect that matters: when ``settings.persist_session`` is on,
 every mutating endpoint snapshots the session to disk, **encrypted at rest**
@@ -303,22 +304,50 @@ async def add_fact(
     return added
 
 
-@app.post("/api/facts/{fact_id}/confirm")
-async def confirm_fact(
-    fact_id: str, _user: User = Depends(require_roles(Role.PROMOTER))
-) -> Fact:
+def _require_own_fact(fact_id: str, current_user: User) -> Fact:
+    """Look up ``fact_id``, 404 if missing, 403 unless the caller supplied it.
+
+    Confirmation and correction are scoped to whoever supplied the fact, not
+    to promoters generically: a promoter confirms promoter-sourced facts, a
+    banker confirms banker-sourced ones (e.g. their own due-diligence
+    certificate upload), an auditor confirms auditor-sourced ones. The point
+    of requiring confirmation is that the supplying party vouches for the
+    extracted value — so it must be that same party who can confirm it, not
+    a different role rubber-stamping someone else's submission.
+    """
     try:
-        confirmed = state.fact_store.confirm(fact_id)
+        fact = state.fact_store.get(fact_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
+    if fact.supplied_by != current_user.role:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"only the {fact.supplied_by.value} who supplied this fact may confirm or "
+                f"correct it (you are {current_user.role.value})"
+            ),
+        )
+    return fact
+
+
+@app.post("/api/facts/{fact_id}/confirm")
+async def confirm_fact(
+    fact_id: str,
+    current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
+) -> Fact:
+    _require_own_fact(fact_id, current_user)
+    confirmed = state.fact_store.confirm(fact_id)
     _persist()
     return confirmed
 
 
 @app.post("/api/facts/{fact_id}/correct")
 async def correct_fact(
-    fact_id: str, req: CorrectionRequest, _user: User = Depends(require_roles(Role.PROMOTER))
+    fact_id: str,
+    req: CorrectionRequest,
+    current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
 ) -> Fact:
+    _require_own_fact(fact_id, current_user)
     try:
         corrected = state.fact_store.correct(fact_id, req.value, req.provenance)
     except KeyError as exc:

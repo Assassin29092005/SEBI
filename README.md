@@ -54,7 +54,7 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   snapshots of the running app state, user accounts, and archived source
   uploads respectively (all gitignored; restored on backend restart — see
   `app.crypto`).
-- `tests/` — 199 passing backend tests.
+- `tests/` — 200 passing backend tests.
 
 ## Run it
 
@@ -87,7 +87,7 @@ self-registration is always open.
 ## Tests + lint
 
 ```bash
-python -m pytest tests/ -q                             # 199 passed, 1 skipped
+python -m pytest tests/ -q                             # 200 passed, 1 skipped
 python -m pytest tests/test_facts.py -q                # one file
 python -m pytest tests/test_facts.py::test_confirmation_makes_fact_available
 python -m ruff check backend                           # lint (E,F,I,UP,B,ANN)

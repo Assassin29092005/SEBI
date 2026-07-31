@@ -8,7 +8,7 @@ Backend (from repo root; package root is `backend/`, tests live in `tests/` at r
 
 ```bash
 pip install -e "backend[dev]"        # install backend + dev deps (pytest, ruff)
-python -m pytest tests/ -q           # full suite (199 passed, 1 skipped)
+python -m pytest tests/ -q           # full suite (200 passed, 1 skipped)
 python -m pytest tests/test_facts.py -q            # one file
 python -m pytest tests/test_facts.py::test_confirmation_makes_fact_available  # one test
 python -m ruff check backend         # lint (line-length 100, rules E,F,I,UP,B,ANN)
