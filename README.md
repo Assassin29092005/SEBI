@@ -11,10 +11,15 @@ The on-stage 12-minute demo script lives in [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md).
 
 ## What it does
 
-An SME promoter walks through: **eligibility → wizard + uploads → fact
-confirmation → grounded generation → gap and contradiction validation →
+An SME promoter walks through: **sign in → eligibility → wizard + uploads →
+fact confirmation → grounded generation → gap and contradiction validation →
 banker certification → exchange-ready package**. The tool:
 
+- Real accounts, not a UI role switch: every promoter/auditor/banker action
+  is enforced server-side by a JWT bearer token and role check (see
+  `backend/app/auth/`) — a promoter account cannot certify a section by
+  editing local state, because the server checks the token's role, not what
+  the frontend claims.
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,
@@ -45,9 +50,11 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   chapter YAMLs for the benchmark.
 - `data/demo_company/` — synthetic issuer *Sunrise Agrotech Ltd* with a
   deliberately planted `issue_size_paise` contradiction for the live demo.
-- `data/session/` — atomic JSON snapshot of the running app state
-  (gitignored; restored on backend restart).
-- `tests/` — 160 passing backend tests.
+- `data/session/`, `data/auth/`, `data/uploads/` — atomic, encrypted-at-rest
+  snapshots of the running app state, user accounts, and archived source
+  uploads respectively (all gitignored; restored on backend restart — see
+  `app.crypto`).
+- `tests/` — 200 passing backend tests.
 
 ## Run it
 
@@ -64,14 +71,23 @@ npm run dev                                            # Vite proxies /api → :
 ```
 
 ```bash
-# Seed the demo issuer through the real API (backend must be running)
+# Seed the demo issuer through the real API (backend must be running).
+# Registers (or logs into, on a repeat run) a demo promoter account first —
+# every endpoint requires a bearer token now (see backend/app/auth).
 python backend/scripts/seed_demo.py --with-uploads     # 42 wizard facts + planted contradiction
 ```
+
+Opening the frontend directly: the app now starts on a sign-in screen.
+Register a promoter account there to walk the wizard yourself, or register a
+banker account (needs `BANKER_INVITE_CODE` from `.env`) to see the
+certification dashboard. Auditor/banker registration is invite-gated — those
+roles carry certification and role-tagged-upload authority; promoter
+self-registration is always open.
 
 ## Tests + lint
 
 ```bash
-python -m pytest tests/ -q                             # 160 passed, 1 skipped
+python -m pytest tests/ -q                             # 200 passed, 1 skipped
 python -m pytest tests/test_facts.py -q                # one file
 python -m pytest tests/test_facts.py::test_confirmation_makes_fact_available
 python -m ruff check backend                           # lint (E,F,I,UP,B,ANN)
@@ -112,7 +128,7 @@ deterministic path.
 | **Document assembly** (`app.assemble.docx_builder`) | `python-docx` layout. Cover page shows both issue-size values with a red `CONTRADICTION DETECTED` line when confirmed sources disagree. Merchant-banker disclaimer + `DRAFT — NOT FOR FILING` notice. `[REQUIRES INPUT]` runs bold red. Superscript citation markers + per-entry `Sources` list. | None. Pure templating. |
 | **Bundle export** (`app.assemble.bundle`) | `zipfile.ZIP_DEFLATED` package: both `.docx` + JSON dumps of every validator + full fact-provenance ledger + review audit trail + manifest with `regulation`, `amended_through`, `schema_version`, `reviewed_by_human`. Gated by the certification lock. | None. Pure packaging. |
 | **Litigation lookup** (`app.intake.litigation`) | Loads `data/demo_company/litigation_records.json` for entities containing `"sunrise agrotech"` behind a `LitigationConnector` Protocol. Missing file / bad JSON returns `[]` with a warning log — never crashes. | None. Real integrations plug in behind the same Protocol seam. |
-| **Persistence** (`app.persistence`) | Atomic JSON snapshot to `data/session/session.json` after every mutating endpoint (write to `.tmp`, then `os.replace`). On boot, corrupt-file-safe load restores the fact store, review state, and cached sections. | None. Pure `pathlib` + `json`. |
+| **Persistence** (`app.persistence`) | Atomic, encrypted-at-rest snapshot to `data/session/session.enc` after every mutating endpoint (write to `.tmp`, then `os.replace`; see `app.crypto`). On boot, corrupt/undecryptable-file-safe load restores the fact store, review state, and cached sections. | None. Pure `pathlib` + `json` (encryption via `cryptography`). |
 | **Wizard question copy** (`app.intake.wizard`) | Reads `question_copy.yaml`; per key returns `{prompt, help, input_hint}` in EN or Hindi. Fallback humanises the raw key when the copy map has no entry — never raises. | None. Pure YAML. |
 | **Schema, review workflow, fact store** | Pydantic + integer paise math. No external calls. | None. |
 

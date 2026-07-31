@@ -11,6 +11,7 @@ import {
   getSchema,
   getSections,
   recordEdit,
+  uploadExtract,
   type BankerEdit,
   type Checklist,
   type ChecklistEntry,
@@ -21,6 +22,7 @@ import {
   type SectionState,
   type Severity,
 } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 
 // --------------------------------------------------------------------------
 // Small helpers
@@ -73,14 +75,12 @@ const STATE_BADGE: Record<SectionState, string> = {
 
 interface EditFormState {
   entry_id: string;
-  editor: string;
   before: string;
   after: string;
 }
 
 const EMPTY_EDIT: EditFormState = {
   entry_id: "",
-  editor: "",
   before: "",
   after: "",
 };
@@ -121,11 +121,9 @@ function DueDiligenceUpload({ reviewState, onUploadComplete }: DueDiligenceUploa
     setProposals([]);
     setProposalStates({});
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch("/api/uploads/extract", { method: "POST", body: form });
-      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-      const data: ExtractionProposal[] = await res.json();
+      // uploadExtract() (not a bare fetch) so the Authorization header goes
+      // out with the request — every endpoint requires it now (see app.auth).
+      const data = await uploadExtract(file);
       setProposals(data);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
@@ -276,6 +274,9 @@ function DueDiligenceUpload({ reviewState, onUploadComplete }: DueDiligenceUploa
 }
 
 export default function BankerDashboard() {
+  // The server always records the authenticated banker as editor (see
+  // POST /api/review/edit) — no free-text "editor" field to spoof or forget.
+  const { user } = useAuth();
   const [checklist, setChecklist] = useState<Checklist | null>(null);
   const [reviewState, setReviewState] = useState<ReviewState | null>(null);
   const [sections, setSections] = useState<GeneratedSection[] | null>(null);
@@ -437,8 +438,8 @@ export default function BankerDashboard() {
   const onSubmitEdit = useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!editForm.entry_id || !editForm.editor || !editForm.after) {
-        setEditError("Entry, editor and the replacement text are required.");
+      if (!editForm.entry_id || !editForm.after) {
+        setEditError("Entry and the replacement text are required.");
         return;
       }
       setEditBusy(true);
@@ -447,7 +448,9 @@ export default function BankerDashboard() {
       try {
         const edit: BankerEdit = {
           entry_id: editForm.entry_id,
-          editor: editForm.editor,
+          // The server overwrites this with the authenticated banker's email
+          // regardless of what's sent — see POST /api/review/edit.
+          editor: user?.email ?? "",
           before: editForm.before,
           after: editForm.after,
           // Backend fills the timestamp — send a placeholder that will be
@@ -460,7 +463,7 @@ export default function BankerDashboard() {
           "Edit recorded. The section has dropped back to draft — re-review " +
             "and re-certify before exporting.",
         );
-        setEditForm((prev) => ({ ...EMPTY_EDIT, editor: prev.editor }));
+        setEditForm(EMPTY_EDIT);
       } catch (err) {
         setEditError(errorMessage(err));
       } finally {
@@ -707,6 +710,12 @@ export default function BankerDashboard() {
             and re-certify before exporting — the audit trail records who
             changed what, and when.
           </p>
+          <p className="text-xs text-slate-500 mb-3">
+            Editing as{" "}
+            <span className="font-medium text-slate-700">
+              {user?.name} ({user?.email})
+            </span>
+          </p>
           <form onSubmit={onSubmitEdit} className="space-y-3">
             <div>
               <label
@@ -730,24 +739,6 @@ export default function BankerDashboard() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label
-                className="block text-xs font-medium text-slate-600"
-                htmlFor="edit-editor"
-              >
-                Your name
-              </label>
-              <input
-                id="edit-editor"
-                type="text"
-                value={editForm.editor}
-                onChange={(e) =>
-                  setEditForm((prev) => ({ ...prev, editor: e.target.value }))
-                }
-                placeholder="e.g. R. Iyer, Lead Manager"
-                className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm"
-              />
             </div>
             <div>
               <label

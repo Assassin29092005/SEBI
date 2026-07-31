@@ -28,8 +28,13 @@ class SourceKind(StrEnum):
 
 class Provenance(BaseModel):
     kind: SourceKind
-    detail: str                      # wizard question id / "filename.pdf p.12" / connector name
-    snippet: str | None = None       # highlighted source text shown at confirmation
+    # wizard question id / "filename.pdf p.12" / connector name — short by
+    # construction, but bounded so a client can't stuff an arbitrarily large
+    # string into a field that's meant to be a short label.
+    detail: str = Field(max_length=500)
+    # highlighted source text shown at confirmation — can be a real sentence
+    # or two from a filed document, so the cap is generous, not tight.
+    snippet: str | None = Field(default=None, max_length=5000)
     supersedes: str | None = None    # fact_id of the version this one corrects
 
 
@@ -37,7 +42,9 @@ class Fact(BaseModel, frozen=True):
     """One confirmed-or-pending value keyed into the fact ontology."""
 
     fact_id: str = Field(default_factory=lambda: str(uuid4()))
-    key: str                         # ontology key, e.g. "issue_size_paise", "share_allotments[]"
+    # ontology key, e.g. "issue_size_paise", "share_allotments[]" — always a
+    # short identifier from the checklist schema, never free text.
+    key: str = Field(max_length=200)
     value: Any
     provenance: Provenance
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)  # 1.0 for wizard answers

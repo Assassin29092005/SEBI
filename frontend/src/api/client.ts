@@ -3,11 +3,49 @@
 // this file is the single source of truth on the frontend side.
 
 // --------------------------------------------------------------------------
+// Auth token — every request below attaches it as a Bearer header. Every
+// backend endpoint except /api/health, /api/schema, and /api/auth/* now
+// requires it (see backend/app/auth) — a 401 here means the token is
+// missing/expired, so we clear it and let AuthContext bounce to /login.
+// --------------------------------------------------------------------------
+
+const TOKEN_STORAGE_KEY = "drhp_token";
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    else localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // Storage blocked — the token just won't persist across reloads.
+  }
+}
+
+/** Fired when a request comes back 401 — AuthContext listens and logs out. */
+function notifyUnauthorized(): void {
+  setToken(null);
+  window.dispatchEvent(new Event("auth:unauthorized"));
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// --------------------------------------------------------------------------
 // Fetch helpers
 // --------------------------------------------------------------------------
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: { ...authHeaders() } });
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -15,9 +53,10 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
   });
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) throw new Error(`POST ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -30,8 +69,10 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
+    headers: { ...authHeaders() },
     body: formData,
   });
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) throw new Error(`POST ${path} → ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -41,6 +82,46 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
 // --------------------------------------------------------------------------
 
 export type Role = "promoter" | "auditor" | "banker" | "system";
+// Roles a human account can hold — "system" is a provenance tag only.
+export type LoginRole = "promoter" | "auditor" | "banker";
+
+// --------------------------------------------------------------------------
+// Auth (backend/app/auth)
+// --------------------------------------------------------------------------
+
+export interface UserPublic {
+  user_id: string;
+  email: string;
+  name: string;
+  role: LoginRole;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: UserPublic;
+}
+
+export interface RegisterInput {
+  email: string;
+  name: string;
+  password: string;
+  role: LoginRole;
+  invite_code?: string;
+}
+
+export interface LoginInput {
+  email: string;
+  password: string;
+}
+
+export const register = (input: RegisterInput): Promise<TokenResponse> =>
+  apiPost<TokenResponse>("/api/auth/register", input);
+
+export const login = (input: LoginInput): Promise<TokenResponse> =>
+  apiPost<TokenResponse>("/api/auth/login", input);
+
+export const getMe = (): Promise<UserPublic> => apiGet<UserPublic>("/api/auth/me");
 export type Severity = "blocker" | "material" | "minor";
 export type OutputTarget = "drhp" | "abridged";
 export type SourceKind = "wizard" | "document" | "lookup" | "role_upload";

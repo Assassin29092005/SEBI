@@ -1,6 +1,9 @@
 """Session-persistence snapshot: round-trip fidelity, atomicity, corruption safety."""
 
+import json
 from pathlib import Path
+
+import pytest
 
 from app.facts import Fact, FactStore, Provenance, SourceKind
 from app.generate.sections import Citation, GeneratedSection
@@ -148,6 +151,22 @@ def test_clear_snapshot_idempotent(tmp_path: Path) -> None:
     assert not (tmp_path / SNAPSHOT_FILENAME).exists()
     clear_snapshot(directory=tmp_path)  # second clear is a no-op
     assert load_snapshot(directory=tmp_path) is None
+
+
+def test_snapshot_file_on_disk_is_encrypted_not_plaintext(tmp_path: Path) -> None:
+    """The whole point of encryption at rest: opening the file directly must
+    not reveal issuer names, fact keys, or any other sensitive content."""
+    _, facts, review, sections = _populated_state()
+    path = save_snapshot(facts, review, sections, directory=tmp_path)
+    raw = path.read_bytes()
+
+    assert b"Sunrise Agrotech" not in raw
+    assert b"issuer_name" not in raw
+    assert b"issue_size_paise" not in raw
+
+    # Ciphertext, not obfuscated JSON — parsing it as JSON must fail outright.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(raw)
 
 
 def test_empty_session_round_trips(tmp_path: Path) -> None:

@@ -234,8 +234,8 @@ def _render_definitions_abbreviations(
     )
 
 
-# Minimum application size by SME exchange (in paise)
-# BSE SME and NSE Emerge both require minimum application of Rs 1 lakh = 1,00,000 rupees = 10^7 paise
+# Minimum application size by SME exchange (in paise). BSE SME and NSE Emerge
+# both require minimum application of Rs 1 lakh = 1,00,000 rupees = 10^7 paise.
 _MIN_APP_SIZE_BY_EXCHANGE: dict[str, int] = {
     "BSE SME": 10_000_000,
     "NSE Emerge": 10_000_000,
@@ -264,7 +264,8 @@ def _render_terms_of_issue(
     issue_size_fact = next((f for f in facts if f.key == "issue_size_paise"), None)
     if issue_size_fact:
         sentence = _fact_sentence(issue_size_fact)
-        citations.append(Citation(fact_id=issue_size_fact.fact_id, text_span=(offset, offset + len(sentence))))
+        span = (offset, offset + len(sentence))
+        citations.append(Citation(fact_id=issue_size_fact.fact_id, text_span=span))
         lines.append(sentence)
         offset += len(sentence) + 1
 
@@ -272,7 +273,8 @@ def _render_terms_of_issue(
     price_band_fact = next((f for f in facts if f.key == "price_band"), None)
     if price_band_fact:
         sentence = _fact_sentence(price_band_fact)
-        citations.append(Citation(fact_id=price_band_fact.fact_id, text_span=(offset, offset + len(sentence))))
+        span = (offset, offset + len(sentence))
+        citations.append(Citation(fact_id=price_band_fact.fact_id, text_span=span))
         lines.append(sentence)
         offset += len(sentence) + 1
 
@@ -282,7 +284,8 @@ def _render_terms_of_issue(
         f"(computed from chosen SME exchange: {exchange})."
     )
     if sme_exchange_fact:
-        citations.append(Citation(fact_id=sme_exchange_fact.fact_id, text_span=(offset, offset + len(min_app_text))))
+        span = (offset, offset + len(min_app_text))
+        citations.append(Citation(fact_id=sme_exchange_fact.fact_id, text_span=span))
     lines.append(min_app_text)
     offset += len(min_app_text) + 1
 
@@ -290,7 +293,8 @@ def _render_terms_of_issue(
     mof_fact = next((f for f in facts if f.key == "means_of_finance"), None)
     if mof_fact:
         sentence = _fact_sentence(mof_fact)
-        citations.append(Citation(fact_id=mof_fact.fact_id, text_span=(offset, offset + len(sentence))))
+        span = (offset, offset + len(sentence))
+        citations.append(Citation(fact_id=mof_fact.fact_id, text_span=span))
         lines.append(sentence)
         offset += len(sentence) + 1
 
