@@ -1,30 +1,29 @@
 """FastAPI app tying the pipeline together.
 
-A single in-process fact store, review state, and generated-sections cache
-(single-tenant: one deployment serves one issuer's promoter/auditor/banker
-team — see ``app.auth`` for why that's the right unit of isolation here).
+Facts, review state, and user accounts are durable in Postgres (see
+``app.db``, ``app.db_models``, ``app.facts_repo``, ``app.review.repo``,
+``app.auth.store``) — one deployment still serves one issuer's
+promoter/auditor/banker team (single-tenant: see ``app.auth`` for why that's
+the right unit of isolation here), but a backend restart or crash no longer
+loses the session; durability comes from Postgres's own write-ahead log, not
+from an application-level snapshot file. The only process-local state left is
+the generated-sections cache (see ``app.runtime_cache``) — cheap and
+deterministic to regenerate from confirmed facts, so it was never worth a
+table.
+
 Every endpoint below requires a valid JWT bearer token (``app.auth.dependencies
 .get_current_user``); actions scoped to one role (confirming/correcting a
 fact is scoped to whoever supplied it, certifying a section is banker-only)
 additionally depend on ``require_roles(...)`` — the frontend's old role
-dropdown was UI-only, this is server-enforced.
-Persistence is demo-grade in shape (a snapshot file, not a database) but
-real in one respect that matters: when ``settings.persist_session`` is on,
-every mutating endpoint snapshots the session to disk, **encrypted at rest**
-(see :mod:`app.crypto`), and boot rehydrates from it, so a backend restart
-mid-demo does not lose the session. (User accounts persist separately — see
-:mod:`app.auth.store` — and are unaffected by a session reset.) Uploaded
-source documents are also archived encrypted (see :mod:`app.intake.vault`)
-so a banker/auditor can retrieve the original a fact's snippet came from.
+dropdown was UI-only, this is server-enforced. Uploaded source documents are
+archived encrypted (see :mod:`app.intake.vault`) so a banker/auditor can
+retrieve the original a fact's snippet came from.
 
-State layout
-------------
-The checklist is loaded once at import time (it is the versioned schema — a
-module-level constant). Everything else — the fact store, review state, the
-last generated sections, and any assembled files — lives inside a mutable
-:class:`AppState` produced by :func:`create_state`. Tests call
-:func:`reset_state` (via fixture) to get a clean slate between cases without
-re-importing the module.
+Each request that touches durable state takes its own DB session via
+``Depends(get_session)`` (see ``app.db``); there is no module-level mutable
+state to reset between tests any more — ``reset_runtime_cache()`` only clears
+the generated-sections cache and any assembled files, since the DB-backed
+data is reset by the test suite's own transaction-rollback fixture.
 """
 
 from __future__ import annotations
@@ -34,7 +33,6 @@ import logging
 import os
 import re
 import shutil
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -42,7 +40,9 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Uploa
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import facts_repo, runtime_cache
 from app.assemble.bundle import build_bundle
 from app.assemble.docx_builder import assemble
 from app.audit import (
@@ -52,17 +52,19 @@ from app.audit import (
     get_audit_log,
     outcome_for_status,
 )
+from app.auth import store as auth_store
 from app.auth.dependencies import get_current_user, require_roles
 from app.auth.models import User
 from app.auth.router import router as auth_router
 from app.auth.security import InvalidToken, decode_access_token
-from app.auth.store import get_user_store
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
+from app.db import get_session, get_sessionmaker
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
 from app.facts import Fact, FactStore, Provenance
+from app.facts_repo import FactNotFound
 from app.generate.sections import GeneratedSection, generate_all
-from app.intake.litigation import FallbackLitigationConnector, LitigationRecord
+from app.intake.litigation import LitigationRecord
 from app.intake.uploads import ExtractionProposal, extract_facts, proposal_to_fact
 from app.intake.vault import (
     ArchivedDocumentMeta,
@@ -71,7 +73,7 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
-from app.persistence import clear_snapshot, load_snapshot, restore_fact_store, save_snapshot
+from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
 from app.schema.models import Checklist, OutputTarget, Role
@@ -151,7 +153,11 @@ async def _resolve_actor(request: Request) -> tuple[str | None, str, Role | None
         payload = decode_access_token(token)
     except InvalidToken:
         return None, "anonymous", None
-    user = get_user_store().get_by_id(payload.get("sub", ""))
+    # Middleware has no FastAPI Depends() injection, so this opens its own
+    # short-lived session rather than sharing the request handler's — the
+    # audit record and the request's own DB work are independent concerns.
+    async with get_sessionmaker()() as session:
+        user = await auth_store.get_by_id(session, payload.get("sub", ""))
     if user is None or user.disabled:
         return None, "anonymous", None
     return user.user_id, user.email, user.role
@@ -237,99 +243,19 @@ OUT_DIR: Path = Path(__file__).resolve().parents[2] / "out"
 checklist: Checklist = load_checklist()
 
 
-# --------------------------------------------------------------------------
-# Mutable app state (reset-able for tests)
-# --------------------------------------------------------------------------
+def reset_runtime_cache() -> None:
+    """Clear the generated-sections cache and any assembled files.
 
-
-@dataclass
-class AppState:
-    """Everything mutable during a single demo run.
-
-    Kept in one dataclass so ``reset_state()`` can swap it atomically — tests
-    call it in a fixture to start each case from a clean slate without having
-    to reload the checklist YAML.
+    Test-only. Facts, review state, and user accounts reset via the test
+    suite's own DB-transaction rollback (see root ``conftest.py``'s
+    ``db_session`` fixture) — there is no module-level store to swap out here
+    any more.
     """
-
-    fact_store: FactStore = field(default_factory=FactStore)
-    review_state: ReviewState = field(default_factory=ReviewState)
-    generated_sections: list[GeneratedSection] = field(default_factory=list)
-    # Real API (api.indiankanoon.org) when configured, offline mock
-    # otherwise/on failure — see app.intake.litigation for what this can
-    # and can't tell you (published judgments only, never a live docket).
-    litigation_connector: FallbackLitigationConnector = field(
-        default_factory=FallbackLitigationConnector
-    )
-
-
-def create_state() -> AppState:
-    return AppState()
-
-
-def restore_persisted_state(target: AppState) -> None:
-    """Rehydrate ``target`` from the on-disk session snapshot, if enabled and present.
-
-    Boot-time only (called once at import, and by tests simulating a restart):
-    keeps a backend restart mid-demo from losing the session. ``create_state()``
-    stays a pure fresh-state factory so :func:`reset_state` semantics (clean
-    slate for tests) are untouched. The litigation connector is not restored —
-    it is stateless (an HTTP client wrapper, or the offline mock) and is
-    recreated fresh by ``create_state()``.
-    """
-    if not settings.persist_session:
-        return
-    snapshot = load_snapshot()
-    if snapshot is None:
-        return
-    target.fact_store = restore_fact_store(snapshot.facts)
-    target.review_state = snapshot.review_state
-    target.generated_sections = list(snapshot.generated_sections)
-
-
-state: AppState = create_state()
-restore_persisted_state(state)
-
-
-def reset_state() -> AppState:
-    """Swap in a fresh :class:`AppState` and clear any assembled files.
-
-    Called from the test fixture before every case. Also nukes the ``out/``
-    directory so ``/api/assemble/{target}`` cases can't leak files between
-    tests, deletes the persisted session snapshot — unconditionally, NOT
-    gated on ``settings.persist_session``: reset means clean slate, and tests
-    rely on a stale snapshot never rehydrating into a later run — and clears
-    the archived-uploads vault for the same reason. Never touches the
-    checklist (which stays module-level), user accounts, or the audit log (a
-    session reset is not an account wipe or an audit-trail wipe — see
-    ``app.auth.store.reset_user_store`` / ``app.audit.reset_audit_log`` for
-    those; a compliance trail that quietly disappears on "reset demo" would
-    defeat the point of having one).
-    """
-    global state
-    state = create_state()
-    clear_snapshot()
+    runtime_cache.reset_cache()
     if OUT_DIR.exists():
         shutil.rmtree(OUT_DIR, ignore_errors=True)
     if settings.uploads_dir.exists():
         shutil.rmtree(settings.uploads_dir, ignore_errors=True)
-    return state
-
-
-def _persist() -> None:
-    """Snapshot the session to disk after a mutating endpoint (no-op when disabled).
-
-    Saves ALL facts — unconfirmed proposals and superseded versions included —
-    so a restart never silently drops a pending proposal or the audit trail.
-    Confirmation status survives verbatim; generation still consumes confirmed
-    facts only (that rule lives in the fact store, not here).
-    """
-    if not settings.persist_session:
-        return
-    save_snapshot(
-        state.fact_store.all_facts(),
-        state.review_state,
-        state.generated_sections,
-    )
 
 
 # --------------------------------------------------------------------------
@@ -397,29 +323,31 @@ async def wizard_questions(
 
 
 @app.get("/api/facts")
-async def list_facts(_user: User = Depends(get_current_user)) -> list[Fact]:
+async def list_facts(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[Fact]:
     """Return every fact in the store — confirmed AND unconfirmed.
 
     The UI needs unconfirmed proposals visible so the promoter can act on them;
     generation still ignores anything not confirmed (see FactStore.confirmed_by_key).
     """
-    return list(state.fact_store._facts.values())  # noqa: SLF001 — thin API view
+    return await facts_repo.all_facts(session)
 
 
 @app.post("/api/facts")
 async def add_fact(
     fact: Fact,
     current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> Fact:
     """Add a fact. ``supplied_by`` is always the caller's authenticated role —
     role-based truth (who may lawfully supply which content) would be
     meaningless if a client could just set this field itself."""
-    added = state.fact_store.add(fact.model_copy(update={"supplied_by": current_user.role}))
-    _persist()
-    return added
+    return await facts_repo.add(session, fact.model_copy(update={"supplied_by": current_user.role}))
 
 
-def _require_own_fact(fact_id: str, current_user: User) -> Fact:
+async def _require_own_fact(session: AsyncSession, fact_id: str, current_user: User) -> Fact:
     """Look up ``fact_id``, 404 if missing, 403 unless the caller supplied it.
 
     Confirmation and correction are scoped to whoever supplied the fact, not
@@ -431,8 +359,8 @@ def _require_own_fact(fact_id: str, current_user: User) -> Fact:
     a different role rubber-stamping someone else's submission.
     """
     try:
-        fact = state.fact_store.get(fact_id)
-    except KeyError as exc:
+        fact = await facts_repo.get(session, fact_id)
+    except FactNotFound as exc:
         raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
     if fact.supplied_by != current_user.role:
         raise HTTPException(
@@ -449,11 +377,10 @@ def _require_own_fact(fact_id: str, current_user: User) -> Fact:
 async def confirm_fact(
     fact_id: str,
     current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> Fact:
-    _require_own_fact(fact_id, current_user)
-    confirmed = state.fact_store.confirm(fact_id)
-    _persist()
-    return confirmed
+    await _require_own_fact(session, fact_id, current_user)
+    return await facts_repo.confirm(session, fact_id)
 
 
 @app.post("/api/facts/{fact_id}/correct")
@@ -461,14 +388,13 @@ async def correct_fact(
     fact_id: str,
     req: CorrectionRequest,
     current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> Fact:
-    _require_own_fact(fact_id, current_user)
+    await _require_own_fact(session, fact_id, current_user)
     try:
-        corrected = state.fact_store.correct(fact_id, req.value, req.provenance)
-    except KeyError as exc:
+        return await facts_repo.correct(session, fact_id, req.value, req.provenance)
+    except FactNotFound as exc:
         raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
-    _persist()
-    return corrected
 
 
 # --------------------------------------------------------------------------
@@ -567,6 +493,7 @@ async def download_upload(
 async def proposals_accept(
     proposal: ExtractionProposal,
     current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> Fact:
     """Materialise a proposal into an unconfirmed Fact in the store.
 
@@ -576,9 +503,7 @@ async def proposals_accept(
     authenticated role — previously a client-supplied query param, which let
     anyone tag their upload as coming from any role they liked.
     """
-    fact = state.fact_store.add(proposal_to_fact(proposal, supplied_by=current_user.role))
-    _persist()
-    return fact
+    return await facts_repo.add(session, proposal_to_fact(proposal, supplied_by=current_user.role))
 
 
 # --------------------------------------------------------------------------
@@ -591,7 +516,7 @@ async def litigation(
     entity: str = Query(..., min_length=1, max_length=200),
     _user: User = Depends(get_current_user),
 ) -> list[LitigationRecord]:
-    return await state.litigation_connector.search(entity, {})
+    return await runtime_cache.litigation_connector.search(entity, {})
 
 
 # --------------------------------------------------------------------------
@@ -600,20 +525,24 @@ async def litigation(
 
 
 @app.post("/api/generate")
-async def generate(_user: User = Depends(require_roles(Role.PROMOTER))) -> list[GeneratedSection]:
+async def generate(
+    _user: User = Depends(require_roles(Role.PROMOTER)),
+    session: AsyncSession = Depends(get_session),
+) -> list[GeneratedSection]:
     """Run grounded generation over the current fact store and cache the result.
 
-    Cached under ``state.generated_sections``; readable via ``GET /api/sections``.
+    Cached via ``app.runtime_cache``; readable via ``GET /api/sections``.
     """
-    state.generated_sections = await generate_all(checklist, state.fact_store)
-    _persist()
-    return state.generated_sections
+    store = await facts_repo.load_fact_store(session)
+    sections = await generate_all(checklist, store)
+    runtime_cache.set_generated_sections(sections)
+    return sections
 
 
 @app.get("/api/sections")
 async def sections(_user: User = Depends(get_current_user)) -> list[GeneratedSection]:
     """Return the last generated sections (empty list if never generated)."""
-    return state.generated_sections
+    return runtime_cache.get_generated_sections()
 
 
 # --------------------------------------------------------------------------
@@ -621,45 +550,50 @@ async def sections(_user: User = Depends(get_current_user)) -> list[GeneratedSec
 # --------------------------------------------------------------------------
 
 
-async def _current_contradictions() -> list[Contradiction]:
+async def _current_contradictions(store: FactStore) -> list[Contradiction]:
     """Cross-check numeric/entity claims across the cached sections + store."""
     all_claims: list[Claim] = []
-    for section in state.generated_sections:
-        all_claims.extend(await extract_claims(section, state.fact_store))
+    for section in runtime_cache.get_generated_sections():
+        all_claims.extend(await extract_claims(section, store))
     return cross_check(all_claims)
 
 
 def _current_boilerplate() -> list[BoilerplateFlag]:
     flags: list[BoilerplateFlag] = []
-    for section in state.generated_sections:
+    for section in runtime_cache.get_generated_sections():
         flags.extend(detect(section))
     return flags
 
 
 async def _examiner_objections(
+    store: FactStore,
     contradictions: list[Contradiction],
     arithmetic: list[ArithmeticFinding],
 ) -> list[Objection]:
     """Enriched examiner: the other validators' outputs feed its deterministic pass."""
     return await examine(
-        state.generated_sections,
+        runtime_cache.get_generated_sections(),
         checklist=checklist,
         contradictions=contradictions,
         boilerplate_flags=_current_boilerplate(),
         arithmetic_findings=arithmetic,
-        store=state.fact_store,
+        store=store,
     )
 
 
 @app.get("/api/validate/contradictions")
-async def validate_contradictions(_user: User = Depends(get_current_user)) -> list[Contradiction]:
-    return await _current_contradictions()
+async def validate_contradictions(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[Contradiction]:
+    store = await facts_repo.load_fact_store(session)
+    return await _current_contradictions(store)
 
 
 @app.get("/api/validate/semantic")
 async def validate_semantic(_user: User = Depends(get_current_user)) -> list[Contradiction]:
     """Free-prose cross-section consistency (LLM enrichment; [] offline)."""
-    return await semantic_check(state.generated_sections)
+    return await semantic_check(runtime_cache.get_generated_sections())
 
 
 @app.get("/api/validate/boilerplate")
@@ -668,17 +602,24 @@ async def validate_boilerplate(_user: User = Depends(get_current_user)) -> list[
 
 
 @app.get("/api/validate/arithmetic")
-async def validate_arithmetic(_user: User = Depends(get_current_user)) -> list[ArithmeticFinding]:
+async def validate_arithmetic(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[ArithmeticFinding]:
     """Objects-of-the-Issue arithmetic over confirmed facts (deterministic, no LLM)."""
-    return check_arithmetic(state.fact_store)
+    store = await facts_repo.load_fact_store(session)
+    return check_arithmetic(store)
 
 
 @app.get("/api/validate/examiner")
-async def validate_examiner(_user: User = Depends(get_current_user)) -> list[Objection]:
-    return await _examiner_objections(
-        await _current_contradictions(),
-        check_arithmetic(state.fact_store),
-    )
+async def validate_examiner(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[Objection]:
+    store = await facts_repo.load_fact_store(session)
+    contradictions = await _current_contradictions(store)
+    arithmetic = check_arithmetic(store)
+    return await _examiner_objections(store, contradictions, arithmetic)
 
 
 # --------------------------------------------------------------------------
@@ -687,8 +628,12 @@ async def validate_examiner(_user: User = Depends(get_current_user)) -> list[Obj
 
 
 @app.get("/api/coverage")
-async def coverage(_user: User = Depends(get_current_user)) -> CoverageReport:
-    return score(checklist, state.generated_sections, store=state.fact_store)
+async def coverage(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> CoverageReport:
+    store = await facts_repo.load_fact_store(session)
+    return score(checklist, runtime_cache.get_generated_sections(), store=store)
 
 
 @app.get("/api/coverage/benchmark")
@@ -703,8 +648,12 @@ async def coverage_benchmark(_user: User = Depends(get_current_user)) -> Benchma
 
 
 @app.get("/api/gaps")
-async def gaps(_user: User = Depends(get_current_user)) -> GapReport:
-    return check_gaps(checklist, state.fact_store)
+async def gaps(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> GapReport:
+    store = await facts_repo.load_fact_store(session)
+    return check_gaps(checklist, store)
 
 
 # --------------------------------------------------------------------------
@@ -713,41 +662,48 @@ async def gaps(_user: User = Depends(get_current_user)) -> GapReport:
 
 
 @app.get("/api/review/state")
-async def review_state_view(_user: User = Depends(get_current_user)) -> ReviewState:
-    return state.review_state
+async def review_state_view(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> ReviewState:
+    return await review_repo.load_review_state(session)
 
 
 @app.post("/api/review/{entry_id}/advance")
 async def review_advance(
-    entry_id: str, req: AdvanceRequest, _user: User = Depends(require_roles(Role.BANKER))
+    entry_id: str,
+    req: AdvanceRequest,
+    _user: User = Depends(require_roles(Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> ReviewState:
     """Certification is the one action the problem statement requires stay with
     the merchant banker — the role check here is the whole point of the lock."""
     try:
-        state.review_state.advance(entry_id, req.to)
+        await review_repo.advance(session, entry_id, req.to)
     except ValueError as exc:
         # Illegal state transition → 409 Conflict (this is not user error, it's
         # a workflow-order violation, which HTTP models as a conflict).
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    _persist()
-    return state.review_state
+    return await review_repo.load_review_state(session)
 
 
 @app.post("/api/review/edit")
 async def review_edit(
-    edit: BankerEdit, current_user: User = Depends(require_roles(Role.BANKER))
+    edit: BankerEdit,
+    current_user: User = Depends(require_roles(Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> ReviewState:
     """``editor`` is always the authenticated banker's email, not the free-text
     value the client sent — the audit trail should be trustworthy by
     construction, not by convention."""
-    state.review_state.record_edit(edit.model_copy(update={"editor": current_user.email}))
-    _persist()
-    return state.review_state
+    await review_repo.record_edit(session, edit.model_copy(update={"editor": current_user.email}))
+    return await review_repo.load_review_state(session)
 
 
 @app.post("/api/review/export")
 async def review_export(
     _user: User = Depends(require_roles(Role.PROMOTER, Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> ExportResponse:
     """Certification lock: refuse export until every blocker section is certified.
 
@@ -755,11 +711,12 @@ async def review_export(
     assembled into ``out/`` and their download URLs returned. Actual bytes
     are served by ``GET /api/assemble/{target}``.
     """
-    allowed, blockers = export_allowed(checklist, state.review_state)
+    review_state = await review_repo.load_review_state(session)
+    allowed, blockers = export_allowed(checklist, review_state)
     if not allowed:
         raise HTTPException(status_code=409, detail={"blocked_by": blockers})
     for target in OutputTarget:
-        _assemble_target(target)
+        await _assemble_target(session, target)
     return ExportResponse(drhp="/api/assemble/drhp", abridged="/api/assemble/abridged")
 
 
@@ -777,19 +734,22 @@ def _target_path(target: OutputTarget) -> Path:
     return OUT_DIR / f"{target.value}.docx"
 
 
-def _assemble_target(target: OutputTarget) -> Path:
+async def _assemble_target(session: AsyncSession, target: OutputTarget) -> Path:
     """Assemble the given target into ``out/`` (idempotent — overwrites).
 
     The live store goes along so the cover page can surface a confirmed
     issue-size contradiction as a visible callout in the exported artefact.
     """
     path = _target_path(target)
-    return assemble(checklist, state.generated_sections, target, path, store=state.fact_store)
+    store = await facts_repo.load_fact_store(session)
+    return assemble(checklist, runtime_cache.get_generated_sections(), target, path, store=store)
 
 
 @app.get("/api/assemble/{target}")
 async def assemble_target(
-    target: str, _user: User = Depends(get_current_user)
+    target: str,
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
     """Serve an assembled .docx, assembling on demand if not already cached.
 
@@ -806,10 +766,11 @@ async def assemble_target(
         raise HTTPException(status_code=404, detail=f"unknown target: {target}") from exc
     path = _target_path(target_enum)
     if not path.exists():
-        allowed, blockers = export_allowed(checklist, state.review_state)
+        review_state = await review_repo.load_review_state(session)
+        allowed, blockers = export_allowed(checklist, review_state)
         if not allowed:
             raise HTTPException(status_code=409, detail={"blocked_by": blockers})
-        _assemble_target(target_enum)
+        await _assemble_target(session, target_enum)
     return FileResponse(
         path=str(path),
         media_type=_DOCX_MEDIA_TYPE,
@@ -828,6 +789,7 @@ BUNDLE_FILENAME = "drhp_studio_package.zip"
 @app.get("/api/export/bundle")
 async def export_bundle(
     _user: User = Depends(require_roles(Role.PROMOTER, Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
     """Exchange-ready ZIP: both .docx targets plus the complete audit trail.
 
@@ -838,23 +800,25 @@ async def export_bundle(
     is computed fresh here so the bundle reflects the store as exported, never
     a stale cache.
     """
-    allowed, blockers = export_allowed(checklist, state.review_state)
+    review_state = await review_repo.load_review_state(session)
+    allowed, blockers = export_allowed(checklist, review_state)
     if not allowed:
         raise HTTPException(status_code=409, detail={"blocked_by": blockers})
 
-    drhp_path = _assemble_target(OutputTarget.DRHP)
-    abridged_path = _assemble_target(OutputTarget.ABRIDGED)
-    contradictions = await _current_contradictions()
-    arithmetic = check_arithmetic(state.fact_store)
+    store = await facts_repo.load_fact_store(session)
+    drhp_path = await _assemble_target(session, OutputTarget.DRHP)
+    abridged_path = await _assemble_target(session, OutputTarget.ABRIDGED)
+    contradictions = await _current_contradictions(store)
+    arithmetic = check_arithmetic(store)
     bundle_path = build_bundle(
         checklist=checklist,
-        sections=state.generated_sections,
-        store=state.fact_store,
-        review_state=state.review_state,
-        gaps=check_gaps(checklist, state.fact_store),
+        sections=runtime_cache.get_generated_sections(),
+        store=store,
+        review_state=review_state,
+        gaps=check_gaps(checklist, store),
         contradictions=contradictions,
-        coverage=score(checklist, state.generated_sections, store=state.fact_store),
-        objections=await _examiner_objections(contradictions, arithmetic),
+        coverage=score(checklist, runtime_cache.get_generated_sections(), store=store),
+        objections=await _examiner_objections(store, contradictions, arithmetic),
         arithmetic=arithmetic,
         drhp_path=drhp_path,
         abridged_path=abridged_path,

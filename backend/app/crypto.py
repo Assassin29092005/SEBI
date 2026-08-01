@@ -1,7 +1,9 @@
-"""Encryption at rest: the session snapshot, the user store, and archived
-uploaded documents (see ``app.persistence``, ``app.auth.store``,
-``app.intake.vault``) are all written and read through this module — none of
-them touch the filesystem directly.
+"""Encryption at rest for the two things still on the filesystem: archived
+original uploads (see ``app.intake.vault``) and the audit log (see
+``app.audit``). Facts, review state, and user accounts moved to Postgres
+(see ``app.db``) and no longer touch the filesystem at all, encrypted or
+otherwise — encryption at rest for that data is a database/infrastructure
+concern now, not application code.
 
 Fernet (AES-128-CBC + HMAC-SHA256, authenticated symmetric encryption) keyed
 by ``Settings.encryption_key``. Same fallback pattern as
@@ -29,8 +31,8 @@ _warned_ephemeral = False
 class DecryptionError(Exception):
     """Ciphertext could not be decrypted — wrong/missing key, or corrupt data.
 
-    Callers treat this the same way ``app.persistence`` treats a corrupt
-    snapshot: log a warning and start fresh rather than crash the app.
+    Callers log a warning and treat the document as unavailable rather than
+    crash the app.
     """
 
 

@@ -9,7 +9,9 @@ project brief and guiding principles first; this file is the on-stage script.
 ```bash
 # 1. Backend
 pip install -e "backend[dev]"
-uvicorn app.main:app --reload --app-dir backend         # 127.0.0.1:8000
+docker compose up -d                                     # Postgres (repo-root docker-compose.yml)
+cd backend && alembic upgrade head && cd ..               # apply migrations to the dev DB
+uvicorn app.main:app --reload --app-dir backend           # 127.0.0.1:8000
 
 # 2. Frontend (separate terminal, from frontend/)
 npm install
@@ -25,8 +27,9 @@ npm run dev                                              # Vite dev server proxi
 #    banker account in step 5 — see backend/app/auth.
 cp .env.example .env
 
-# 4. Sanity checks (should print all green):
-python -m pytest tests/ -q                               # 256 passed, 3 skipped
+# 4. Sanity checks (should print all green — pytest needs docker compose up
+#    and a one-time `createdb drhp_studio_test`, see CLAUDE.md § Commands):
+python -m pytest tests/ -q
 python -m ruff check backend                             # All checks passed
 cd frontend && npm run build                             # clean
 
@@ -36,16 +39,18 @@ cd frontend && npm run build                             # clean
 #    is watching — it's a one-time setup step, not part of the pitch.
 ```
 
-Reset the demo cleanly between runs: kill the backend, delete
-`data/session/session.enc` if present, restart. Persistence is on by
-default and accounts survive a restart (`data/auth/`, gitignored) — no need
-to re-register.
+Reset the demo cleanly between runs: facts, review state, and accounts live
+in Postgres now, so a backend restart alone changes nothing (that's the
+point — see `app.db`). For a genuinely clean slate, drop and re-migrate the
+dev database (`docker compose exec postgres dropdb -U drhp drhp_studio &&
+docker compose exec postgres createdb -U drhp drhp_studio && (cd backend &&
+alembic upgrade head)`) before re-registering demo accounts.
 
 ## Key numbers (from a green build, `schema_version: 0.4.0`)
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | 256 (3 opt-in/environment skips: live-LLM, 2x real-OCR) |
+| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -168,11 +173,12 @@ reconciles with the ₹12.5 cr wizard value inside the 5% band.
   examiner — all offline-safe. Autouse pytest fixture blanks API keys in the
   test suite; the same fallback path is what production hits when
   `LLMUnavailable` is raised.
-- **Backend crashes mid-demo:** `data/session/session.enc` is written
-  atomically after every mutating endpoint. Restart uvicorn — facts, review
-  state, cached sections come back. Persist knob:
-  `settings.persist_session = False` disables it; session lives in
-  `settings.session_dir` (default `data/session/`, gitignored).
+- **Backend crashes mid-demo:** facts, review state, and accounts are
+  durable in Postgres (`app.db`) as of every mutating call, not a
+  snapshot file — restart uvicorn and everything is back, with no persist
+  knob to check. Only cached generated sections need a fresh
+  `POST /api/generate` (they were never persisted — see `app.runtime_cache`).
+  Make sure `docker compose ps` shows Postgres healthy before restarting.
 - **Frontend hot-reload trips:** hard-refresh the tab. Backend state
   survives.
 

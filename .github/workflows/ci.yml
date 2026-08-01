@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: drhp
+          POSTGRES_PASSWORD: drhp_dev_password
+          POSTGRES_DB: drhp_studio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U drhp -d drhp_studio"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend + dev deps
+        run: pip install -e "backend[dev]"
+
+      - name: Create test database
+        run: PGPASSWORD=drhp_dev_password psql -h localhost -U drhp -d drhp_studio -c "CREATE DATABASE drhp_studio_test"
+
+      - name: Apply migrations (dev DB)
+        working-directory: backend
+        run: python -m alembic upgrade head
+
+      - name: Apply migrations (test DB)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio_test
+        run: python -m alembic upgrade head
+
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+      - name: Lint
+        run: python -m ruff check backend
+
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build (includes tsc type-check)
+        working-directory: frontend
+        run: npm run build

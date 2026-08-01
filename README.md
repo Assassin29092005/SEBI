@@ -53,18 +53,20 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   chapter YAMLs for the benchmark.
 - `data/demo_company/` — synthetic issuer *Sunrise Agrotech Ltd* with a
   deliberately planted `issue_size_paise` contradiction for the live demo.
-- `data/session/`, `data/auth/`, `data/uploads/`, `data/audit/` — atomic,
-  encrypted-at-rest snapshots of the running app state, user accounts,
-  archived source uploads, and the access-log audit trail respectively (all
-  gitignored; restored on backend restart — see `app.crypto`).
-- `tests/` — 256 passing backend tests (3 opt-in/environment skips).
+- `data/uploads/`, `data/audit/` — encrypted-at-rest archives of original
+  source uploads and the access-log audit trail respectively (gitignored;
+  see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
+  and user accounts live in Postgres, not on disk — see `app.db`.
+- `tests/` — 248 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 
 ```bash
 # Backend
 pip install -e "backend[dev]"
-uvicorn app.main:app --reload --app-dir backend       # 127.0.0.1:8000
+docker compose up -d                                   # Postgres (repo-root docker-compose.yml)
+cd backend && alembic upgrade head && cd ..             # apply migrations
+uvicorn app.main:app --reload --app-dir backend         # 127.0.0.1:8000
 ```
 
 ```bash
@@ -90,7 +92,7 @@ self-registration is always open.
 ## Tests + lint
 
 ```bash
-python -m pytest tests/ -q                             # 256 passed, 3 skipped
+python -m pytest tests/ -q                             # needs Postgres running — see "Run it" above
 python -m pytest tests/test_facts.py -q                # one file
 python -m pytest tests/test_facts.py::test_confirmation_makes_fact_available
 python -m ruff check backend                           # lint (E,F,I,UP,B,ANN)
@@ -132,7 +134,7 @@ deterministic path.
 | **Document assembly** (`app.assemble.docx_builder`) | `python-docx` layout. Cover page shows both issue-size values with a red `CONTRADICTION DETECTED` line when confirmed sources disagree. Merchant-banker disclaimer + `DRAFT — NOT FOR FILING` notice. `[REQUIRES INPUT]` runs bold red. Superscript citation markers + per-entry `Sources` list. | None. Pure templating. |
 | **Bundle export** (`app.assemble.bundle`) | `zipfile.ZIP_DEFLATED` package: both `.docx` + JSON dumps of every validator + full fact-provenance ledger + review audit trail + manifest with `regulation`, `amended_through`, `schema_version`, `reviewed_by_human`. Gated by the certification lock. | None. Pure packaging. |
 | **Litigation lookup** (`app.intake.litigation`) | `MockLitigationConnector` loads `data/demo_company/litigation_records.json` for entities containing `"sunrise agrotech"`. Missing file / bad JSON returns `[]` with a warning log — never crashes. | `IndianKanoonConnector` — a real, working integration against api.indiankanoon.org (published Supreme Court/High Court/tribunal judgments; verified against the API's own reference client and against the live server). `FallbackLitigationConnector` tries it when `LITIGATION_PROVIDER=indiankanoon` + a token are configured, and falls back to the mock on any failure — same pattern as the LLM provider. It indexes decided matters only; there is no free public API over India's live pending-case docket (eCourts/NJDG has none). |
-| **Persistence** (`app.persistence`) | Atomic, encrypted-at-rest snapshot to `data/session/session.enc` after every mutating endpoint (write to `.tmp`, then `os.replace`; see `app.crypto`). On boot, corrupt/undecryptable-file-safe load restores the fact store, review state, and cached sections. | None. Pure `pathlib` + `json` (encryption via `cryptography`). |
+| **Persistence** (`app.db`, `app.facts_repo`, `app.review.repo`, `app.auth.store`) | Facts, review state, and user accounts are written directly to Postgres on every mutating endpoint — durability comes from Postgres's own write-ahead log, not application code. A backend restart or crash loses nothing; only the process-local generated-sections cache (`app.runtime_cache`) needs a fresh `POST /api/generate`. The audit log (`app.audit`) is the one exception, still a flat encrypted file — see Known Limitations in CLAUDE.md. | None. SQLModel + `asyncpg`, no LLM involvement. |
 | **Wizard question copy** (`app.intake.wizard`) | Reads `question_copy.yaml`; per key returns `{prompt, help, input_hint}` in EN or Hindi. Fallback humanises the raw key when the copy map has no entry — never raises. | None. Pure YAML. |
 | **Schema, review workflow, fact store** | Pydantic + integer paise math. No external calls. | None. |
 

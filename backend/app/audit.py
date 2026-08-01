@@ -14,12 +14,14 @@ resource type, with the resource id pulled out of the path where one exists)
 and recorded here, encrypted at rest like the rest of this app's storage
 (see :mod:`app.crypto`).
 
-Storage note: like :mod:`app.auth.store`, this rewrites the whole encrypted
-file on every event (read-modify-write, atomic tmp-then-``os.replace``).
-That's fine for a single issuer's audit volume over a drafting cycle, but it
-is an O(n) write on every request — exactly the kind of thing a real
-database's append-only table exists to solve. Documented as a known
-limitation, not built, same as the rest of this app's persistence layer.
+Storage note: this rewrites the whole encrypted file on every event
+(read-modify-write, atomic tmp-then-``os.replace`` — the same pattern
+``app.auth.store`` used before facts/review/users moved to Postgres, see
+``app.db``). That's fine for a single issuer's audit volume over a drafting
+cycle, but it is an O(n) write on every request — exactly the kind of thing
+a real database's append-only table exists to solve, same problem Postgres
+was brought in to fix for the rest of this app's durable state. Documented
+as a known limitation, not (yet) migrated.
 """
 
 from __future__ import annotations
@@ -128,7 +130,8 @@ def classify_request(method: str, path: str) -> tuple[str, str, str | None]:
 
 
 # --------------------------------------------------------------------------
-# Storage: encrypted, atomic, same read-modify-write pattern as UserStore
+# Storage: encrypted, atomic, read-modify-write on every event (see the
+# module docstring's Storage note for the O(n)-per-write caveat)
 # --------------------------------------------------------------------------
 
 

@@ -23,8 +23,11 @@ class Settings(BaseSettings):
 
     data_dir: Path = REPO_ROOT / "data"
 
-    persist_session: bool = True
-    session_dir: Path = REPO_ROOT / "data" / "session"
+    # Postgres connection string (SQLAlchemy async URL). Default matches
+    # docker-compose.yml's postgres service exactly — `docker compose up -d`
+    # plus `alembic upgrade head` is the entire local-dev setup, zero .env
+    # edits required. Production sets DATABASE_URL in the environment.
+    database_url: str = "postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio"
 
     # Auth: JWT bearer tokens + a persisted user store (see app.auth). Leaving
     # jwt_secret_key unset falls back to a per-process random key (app.auth.security)
@@ -33,8 +36,6 @@ class Settings(BaseSettings):
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 480  # one working day
-
-    auth_dir: Path = REPO_ROOT / "data" / "auth"
 
     # Self-registration is open for the "promoter" role (an SME signing up is
     # the primary path). Auditor/banker are intermediary roles with real
@@ -52,8 +53,9 @@ class Settings(BaseSettings):
     # Content-Length header, e.g. chunked transfer-encoding).
     max_request_body_bytes: int = 20 * 1024 * 1024  # 20 MB — covers a scanned SME filing PDF
 
-    # Encryption at rest (see app.crypto): the session snapshot, the user
-    # store, and archived original uploads are all written through it. Leaving
+    # Encryption at rest (see app.crypto): archived original uploads are
+    # written through it (facts/review/users now live in Postgres — see
+    # app.db). Leaving
     # encryption_key unset falls back to a per-process random key, same
     # pattern as jwt_secret_key above — local dev/tests still round-trip
     # correctly with zero setup, but data written under an ephemeral key is

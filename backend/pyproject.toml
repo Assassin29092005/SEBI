@@ -18,11 +18,15 @@ dependencies = [
     "pytesseract>=0.3.10",
     "Pillow>=10.0",
     "pymupdf>=1.24",
+    "sqlmodel>=0.0.22",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.23",
     "ruff>=0.4",
 ]
 
@@ -33,9 +37,14 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Alembic-generated revision scripts — not hand-maintained code.
+extend-exclude = ["migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ANN"]

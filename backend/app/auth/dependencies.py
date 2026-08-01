@@ -14,10 +14,12 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import store as auth_store
 from app.auth.models import User
 from app.auth.security import InvalidToken, decode_access_token
-from app.auth.store import get_user_store
+from app.db import get_session
 from app.schema.models import Role
 
 _bearer = HTTPBearer(auto_error=False)
@@ -25,6 +27,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    session: AsyncSession = Depends(get_session),
 ) -> User:
     if credentials is None:
         raise HTTPException(
@@ -37,7 +40,7 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid or expired token"
         ) from exc
-    user = get_user_store().get_by_id(payload["sub"])
+    user = await auth_store.get_by_id(session, payload["sub"])
     if user is None or user.disabled:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="user not found or disabled"
