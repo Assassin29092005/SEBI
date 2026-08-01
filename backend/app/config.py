@@ -103,5 +103,20 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ""
     tesseract_lang: str = "eng"
 
+    # Backup & disaster recovery (see app.backup): periodic full backups of
+    # Postgres (pg_dump) plus the two encrypted-at-rest directories that live
+    # outside the database — archived uploads and the audit log — into one
+    # timestamped .tar.gz. Requires the Postgres client tools (pg_dump/psql)
+    # as system binaries, same optional-real-capability pattern as Tesseract
+    # above: pip installs the async driver, not the CLI tools. Default
+    # command names assume PATH; override with a full path when they aren't
+    # on it (the common case on Windows). backup_retention_count is how many
+    # of the most recent backups to keep in backup_dir — older ones are
+    # deleted after each successful run; 0 disables pruning.
+    backup_dir: Path = REPO_ROOT / "data" / "backups"
+    backup_retention_count: int = 7
+    pg_dump_cmd: str = "pg_dump"
+    psql_cmd: str = "psql"
+
 
 settings = Settings()

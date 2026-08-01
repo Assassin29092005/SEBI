@@ -28,6 +28,7 @@ data is reset by the test suite's own transaction-rollback fixture.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -57,6 +58,7 @@ from app.auth.dependencies import get_current_user, require_roles
 from app.auth.models import User
 from app.auth.router import router as auth_router
 from app.auth.security import InvalidToken, decode_access_token
+from app.backup import BackupError, BackupInfo, create_backup, list_backups
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.db import get_session
@@ -873,3 +875,35 @@ async def view_audit_log(
         outcome=outcome,
         limit=limit,
     )
+
+
+# --------------------------------------------------------------------------
+# Backup & disaster recovery (see app.backup)
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/backup")
+async def list_backups_endpoint(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> list[BackupInfo]:
+    """Existing backup archives, most recent first — banker-only, same
+    oversight rationale as the audit log above."""
+    return list_backups()
+
+
+@app.post("/api/backup")
+async def create_backup_endpoint(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> BackupInfo:
+    """Trigger a backup now (pg_dump + uploads + audit log into one archive).
+
+    Runs in a worker thread (``pg_dump`` is a blocking subprocess call) so it
+    doesn't stall the event loop for every other in-flight request. There is
+    deliberately no restore endpoint — see ``app.backup.restore_backup``'s
+    docstring for why that stays CLI-only.
+    """
+    try:
+        path = await asyncio.to_thread(create_backup)
+    except BackupError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return next(info for info in list_backups() if info.filename == path.name)

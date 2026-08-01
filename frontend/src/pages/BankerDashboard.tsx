@@ -4,14 +4,17 @@ import {
   acceptProposal,
   bundleUrl,
   confirmFact,
+  createBackup,
   exportPackage,
   getArithmetic,
+  getBackups,
   getContradictions,
   getReviewState,
   getSchema,
   getSections,
   recordEdit,
   uploadExtract,
+  type BackupInfo,
   type BankerEdit,
   type Checklist,
   type ChecklistEntry,
@@ -40,6 +43,13 @@ function statusFromError(err: unknown): number | null {
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 
 // Next legal step in the draft → reviewed → certified pipeline. Returning
@@ -300,6 +310,13 @@ export default function BankerDashboard() {
   const [exportLockMessage, setExportLockMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Backup state (backend/app/backup.py). No restore action here by
+  // design — restore is CLI-only, see app.backup.restore_backup's docstring.
+  const [backups, setBackups] = useState<BackupInfo[] | null>(null);
+  const [backupsLoading, setBackupsLoading] = useState<boolean>(false);
+  const [backupsError, setBackupsError] = useState<string | null>(null);
+  const [creatingBackup, setCreatingBackup] = useState<boolean>(false);
+
   // Open validation findings (contradictions + arithmetic). Fetched on mount,
   // strictly non-blocking: if either endpoint fails this stays null and the
   // summary card simply does not render — the certification workflow must
@@ -357,6 +374,35 @@ export default function BankerDashboard() {
       cancelled = true;
     };
   }, []);
+
+  const loadBackups = useCallback(async () => {
+    setBackupsLoading(true);
+    setBackupsError(null);
+    try {
+      setBackups(await getBackups());
+    } catch (err) {
+      setBackupsError(errorMessage(err));
+    } finally {
+      setBackupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBackups();
+  }, [loadBackups]);
+
+  const onCreateBackup = useCallback(async () => {
+    setCreatingBackup(true);
+    setBackupsError(null);
+    try {
+      await createBackup();
+      await loadBackups();
+    } catch (err) {
+      setBackupsError(errorMessage(err));
+    } finally {
+      setCreatingBackup(false);
+    }
+  }, [loadBackups]);
 
 // ----------------------------------------------------------------------
 // Derived: only entries the tool is actually responsible for (non-stub).
@@ -979,6 +1025,73 @@ export default function BankerDashboard() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* --- Backup & disaster recovery ----------------------------------- */}
+      <div className="rounded border border-slate-200 bg-white p-4">
+        <h2 className="text-lg font-semibold mb-2">Backup &amp; disaster recovery</h2>
+        <p className="text-sm text-slate-600 max-w-3xl">
+          A backup is a full snapshot — the database plus every archived
+          upload and the audit log — bundled into one file. Nothing runs this
+          on a schedule automatically; a real deployment should trigger this
+          regularly from outside the app (cron, a scheduled task) in addition
+          to using this button. There is no restore action here by design —
+          restoring overwrites live data and is deliberately a
+          command-line-only operation an operator runs directly on the
+          server.
+        </p>
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => void onCreateBackup()}
+            disabled={creatingBackup}
+            className={
+              "rounded px-4 py-2 text-sm font-medium text-white " +
+              (creatingBackup
+                ? "bg-slate-400 cursor-not-allowed"
+                : "bg-emerald-700 hover:bg-emerald-800")
+            }
+          >
+            {creatingBackup ? "Backing up…" : "Back up now"}
+          </button>
+        </div>
+
+        {backupsError && (
+          <div className="mt-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+            {backupsError}
+          </div>
+        )}
+
+        <div className="mt-4">
+          {backupsLoading && backups === null ? (
+            <p className="text-sm text-slate-500">Loading backups…</p>
+          ) : backups && backups.length > 0 ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="pb-1 font-medium">File</th>
+                  <th className="pb-1 font-medium">Size</th>
+                  <th className="pb-1 font-medium">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backups.map((b) => (
+                  <tr key={b.filename} className="border-t border-slate-100">
+                    <td className="py-1 pr-2 font-mono text-xs text-slate-700 break-all">
+                      {b.filename}
+                    </td>
+                    <td className="py-1 pr-2 text-slate-700">{formatBytes(b.size_bytes)}</td>
+                    <td className="py-1 text-slate-700">
+                      {new Date(b.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm text-slate-500">No backups yet.</p>
+          )}
+        </div>
       </div>
     </section>
   );

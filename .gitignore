@@ -29,6 +29,10 @@ data/uploads/
 # Audit log, encrypted at rest (see backend/app/audit.py)
 data/audit/
 
+# Backup archives (see backend/app/backup.py) — contain a full plain-SQL DB
+# dump plus the two directories above; never belong in version control.
+data/backups/
+
 # OS / editor
 .DS_Store
 Thumbs.db

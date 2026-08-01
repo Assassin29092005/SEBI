@@ -297,6 +297,23 @@ export interface CoverageReport {
   // serialised in the JSON response. Compute it on the frontend if needed.
 }
 
+// --------------------------------------------------------------------------
+// Backup & disaster recovery (backend/app/backup.py). Banker-only, same
+// oversight rationale as the audit log. There is deliberately no "restore"
+// call here — restore is CLI-only (backend/scripts/restore_data.py), never
+// one authenticated request away from overwriting live data.
+// --------------------------------------------------------------------------
+
+export interface BackupInfo {
+  filename: string;
+  size_bytes: number;
+  created_at: string; // ISO 8601
+}
+
+export const getBackups = (): Promise<BackupInfo[]> => apiGet<BackupInfo[]>("/api/backup");
+
+export const createBackup = (): Promise<BackupInfo> => apiPost<BackupInfo>("/api/backup", {});
+
 // Reference-filing benchmark (backend/app/coverage.py, data/reference_drhps/)
 export interface ChapterMapping {
   heading: string;

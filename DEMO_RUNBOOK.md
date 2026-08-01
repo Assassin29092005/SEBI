@@ -50,7 +50,7 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
+| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 275 test functions present as of this merge (219 of them run and pass without a DB), run `pytest tests/ -q` locally to confirm |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -236,3 +236,15 @@ Quote these faithfully — never soften them:
   (auditor/banker registration uses a shared invite code, not per-user
   invites) and password reset — appropriate for one issuer's small team, not
   a multi-firm SaaS yet.
+- **"What happens if the database dies — is there a backup?"** Yes, and it's
+  real, not just "Postgres restarts durably": `app.backup` bundles a
+  `pg_dump` with the archived-upload vault and the audit log into one
+  timestamped archive; a banker can trigger and review backups from the
+  dashboard (`GET`/`POST /api/backup`). Honest caveat: it's periodic
+  full-dump, not continuous point-in-time recovery (that needs WAL
+  archiving) — an outage loses everything since the last successful backup
+  run, and nothing schedules that run automatically (this app has no
+  scheduler of its own; a real deployment wires
+  `backend/scripts/backup_data.py` into cron). Restore is deliberately
+  CLI-only with a required `--yes` flag — never an HTTP endpoint, since it
+  overwrites live data with no undo.

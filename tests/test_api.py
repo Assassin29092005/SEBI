@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import main as main_module
 from app.assemble.bundle import BUNDLE_MEMBERS
 from app.audit import reset_audit_log
+from app.backup import BackupError
 from app.config import settings
 from app.db import get_session
 from app.review.workflow import SectionState
@@ -923,3 +924,65 @@ async def test_audit_log_excludes_health_check(
     await fresh_app.get("/api/health")
     events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
     assert not any(e["path"] == "/api/health" for e in events)
+
+
+# --------------------------------------------------------------------------
+# Backup & disaster recovery (app.backup, wired in main.py as GET/POST /api/backup)
+# --------------------------------------------------------------------------
+# create_backup itself is monkeypatched here rather than exercised for real:
+# it shells out to pg_dump, which this suite's Postgres service container may
+# or may not have the CLI tools installed for (unlike asyncpg, a Python
+# driver, pg_dump is a separate system binary — see app.backup's module
+# docstring). The real subprocess path is covered by tests/test_backup.py's
+# skipif-guarded live-pg_dump tests instead.
+
+
+async def test_backup_endpoints_require_banker_role(fresh_app: AsyncClient) -> None:
+    assert (await fresh_app.get("/api/backup")).status_code == 403
+    assert (await fresh_app.post("/api/backup")).status_code == 403
+
+
+async def test_list_backups_endpoint_returns_empty_list_initially(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(settings, "backup_dir", tmp_path / "backups")
+    resp = await fresh_app.get("/api/backup", headers=banker_headers)
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+async def test_create_backup_endpoint_returns_backup_info_and_is_listed_after(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    backup_dir = tmp_path / "backups"
+
+    def _fake_create_backup() -> Path:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        path = backup_dir / "drhp_backup_20260731T000000000000Z.tar.gz"
+        path.write_bytes(b"fake archive contents")
+        return path
+
+    monkeypatch.setattr(settings, "backup_dir", backup_dir)
+    monkeypatch.setattr(main_module, "create_backup", _fake_create_backup)
+
+    created = await fresh_app.post("/api/backup", headers=banker_headers)
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["filename"] == "drhp_backup_20260731T000000000000Z.tar.gz"
+    assert body["size_bytes"] == len(b"fake archive contents")
+
+    listing = (await fresh_app.get("/api/backup", headers=banker_headers)).json()
+    assert len(listing) == 1
+    assert listing[0]["filename"] == body["filename"]
+
+
+async def test_create_backup_endpoint_reports_backup_error_as_503(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail() -> Path:
+        raise BackupError("'pg_dump' not found on PATH")
+
+    monkeypatch.setattr(main_module, "create_backup", _fail)
+    resp = await fresh_app.post("/api/backup", headers=banker_headers)
+    assert resp.status_code == 503
+    assert "pg_dump" in resp.json()["detail"]
