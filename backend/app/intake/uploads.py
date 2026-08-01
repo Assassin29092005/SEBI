@@ -15,6 +15,15 @@ Extraction runs two paths and merges the results:
    is configured (offline-first): scans for ``Label: value`` lines using the
    shared label convention.
 
+Both paths read from the same per-page text, which itself has two sources
+(see ``_page_texts``): a document's native text layer where one exists, and
+Tesseract OCR (``app.intake.ocr``) as a fallback for scanned PDF pages and
+standalone image uploads — real SME paperwork often has no text layer at
+all. Facts sourced from an OCR'd page carry a lower confidence
+(``_OCR_CONFIDENCE``) than native-text extraction, since character
+recognition can misread a digit; the adversarial examiner's existing
+low-confidence objection picks this up with no changes needed there.
+
 On a duplicate ``(fact_key, page)`` the LLM proposal wins.
 """
 
@@ -25,11 +34,13 @@ import json
 import logging
 import re
 from decimal import Decimal
+from typing import NamedTuple
 
 from pydantic import BaseModel
 from pypdf import PdfReader
 
 from app.facts import Fact, Provenance, SourceKind
+from app.intake.ocr import OcrUnavailable, ocr_image, ocr_image_bytes, render_pdf_page_to_image
 from app.llm.client import grounded_complete
 from app.schema.loader import load_checklist
 from app.schema.models import Role
@@ -46,6 +57,19 @@ logger = logging.getLogger("drhp.intake.uploads")
 
 _DETERMINISTIC_CONFIDENCE = 0.9
 _DEFAULT_LLM_CONFIDENCE = 0.5
+# Lower than native-text confidence — character recognition can misread a
+# digit or a word, and this app never lets an extraction pretend to be more
+# certain than it actually is. Deliberately just under the examiner's
+# existing "low-confidence extraction" threshold (0.7, see
+# app.validate.examiner) so every OCR-sourced fact is flagged for review
+# automatically, with no changes needed to that check.
+_OCR_CONFIDENCE = 0.6
+# A PDF page with fewer than this many non-whitespace characters in its
+# native text layer is treated as scanned (image-only) — real disclosure
+# prose runs to hundreds of characters per page; a handful of stray
+# characters is watermark/artifact noise, not content.
+_MIN_NATIVE_TEXT_CHARS = 20
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp")
 
 # crore = 10^7 rupees, lakh = 10^5 rupees; longest spellings first.
 _INR_MULTIPLIERS: dict[str, int] = {
@@ -113,12 +137,65 @@ def _allowed_fact_keys() -> set[str]:
     return keys
 
 
-def _page_texts(filename: str, content: bytes) -> list[str]:
-    """One text per page: pypdf for .pdf; otherwise utf-8 text split on form-feed."""
-    if filename.lower().endswith(".pdf"):
+class PageText(NamedTuple):
+    text: str
+    ocr: bool  # True iff this text came from OCR rather than a native text layer
+
+
+def _looks_scanned(native_text: str) -> bool:
+    return len(native_text.strip()) < _MIN_NATIVE_TEXT_CHARS
+
+
+def _page_texts(filename: str, content: bytes) -> list[PageText]:
+    """One ``PageText`` per page: native text where there is one, OCR otherwise.
+
+    - ``.pdf``: pypdf's native text layer per page. Any page whose native
+      text is too thin to be real content (``_looks_scanned``) is re-read
+      via Tesseract OCR over a rendered image of that specific page — a
+      scanned/photographed page has no text layer at all, so pypdf sees
+      nothing there regardless of how good the source scan is. A page
+      that's still empty after that (OCR unavailable, or the page really is
+      blank) just stays an empty ``PageText`` — the caller's extraction
+      passes find no labels on it, same as an empty native page today.
+    - image files (``.png``/``.jpg``/``.tiff``/...): the whole image is
+      "page 1", OCR'd directly.
+    - everything else (``.txt``): UTF-8 text split on form-feed, never OCR'd.
+    """
+    lower = filename.lower()
+
+    if lower.endswith(".pdf"):
         reader = PdfReader(io.BytesIO(content))
-        return [page.extract_text() or "" for page in reader.pages]
-    return content.decode("utf-8", errors="replace").split("\f")
+        pages: list[PageText] = []
+        for index, page in enumerate(reader.pages):
+            native = page.extract_text() or ""
+            if not _looks_scanned(native):
+                pages.append(PageText(text=native, ocr=False))
+                continue
+            try:
+                image = render_pdf_page_to_image(content, index)
+                ocr_text = ocr_image(image)
+            except OcrUnavailable as exc:
+                logger.info(
+                    "OCR unavailable for %s page %d, keeping (empty) native text: %s",
+                    filename,
+                    index + 1,
+                    exc,
+                )
+                pages.append(PageText(text=native, ocr=False))
+                continue
+            pages.append(PageText(text=ocr_text, ocr=True))
+        return pages
+
+    if lower.endswith(_IMAGE_EXTENSIONS):
+        try:
+            text = ocr_image_bytes(content)
+        except OcrUnavailable as exc:
+            logger.info("OCR unavailable for image upload %s: %s", filename, exc)
+            return [PageText(text="", ocr=False)]
+        return [PageText(text=text, ocr=True)]
+
+    text = content.decode("utf-8", errors="replace")
+    return [PageText(text=chunk, ocr=False) for chunk in text.split("\f")]
 
 
 def _normalise_value(fact_key: str, raw: str) -> str | int | None:
@@ -136,13 +213,18 @@ def _normalise_value(fact_key: str, raw: str) -> str | int | None:
 
 
 def _deterministic_extract(
-    page_texts: list[str], source_file: str, allowed_keys: set[str]
+    page_texts: list[PageText], source_file: str, allowed_keys: set[str]
 ) -> list[ExtractionProposal]:
-    """Scan for ``Label: value`` lines per the shared label convention (offline path)."""
+    """Scan for ``Label: value`` lines per the shared label convention (offline path).
+
+    A page's confidence reflects where its text came from: OCR is less
+    certain than a native text layer (see ``_OCR_CONFIDENCE``).
+    """
     label_map = {label_for_key(key).lower(): key for key in allowed_keys}
     proposals: list[ExtractionProposal] = []
-    for page_num, text in enumerate(page_texts, start=1):
-        for line in text.splitlines():
+    for page_num, page in enumerate(page_texts, start=1):
+        confidence = _OCR_CONFIDENCE if page.ocr else _DETERMINISTIC_CONFIDENCE
+        for line in page.text.splitlines():
             label, sep, raw_value = line.partition(":")
             if not sep:
                 continue  # prose line — ignore
@@ -159,7 +241,7 @@ def _deterministic_extract(
                     source_file=source_file,
                     page=page_num,
                     snippet=line.strip(),
-                    confidence=_DETERMINISTIC_CONFIDENCE,
+                    confidence=confidence,
                 )
             )
     return proposals
@@ -187,8 +269,15 @@ def _parse_llm_proposals(
     page_text: str,
     source_file: str,
     allowed_keys: set[str],
+    is_ocr: bool = False,
 ) -> list[ExtractionProposal]:
-    """Defensive parse: drop anything malformed, unknown, or not grounded in the page."""
+    """Defensive parse: drop anything malformed, unknown, or not grounded in the page.
+
+    ``is_ocr`` caps the reported confidence at ``_OCR_CONFIDENCE`` — the LLM
+    can't know its source page came from character recognition rather than
+    a native text layer, so that cap is applied here, not trusted from the
+    model's own (possibly overconfident) score.
+    """
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response_text.strip())
     start, end = text.find("["), text.rfind("]")
     if start == -1 or end <= start:
@@ -238,6 +327,8 @@ def _parse_llm_proposals(
         if isinstance(confidence, bool) or not isinstance(confidence, int | float):
             confidence = _DEFAULT_LLM_CONFIDENCE
         confidence = min(max(float(confidence), 0.0), 1.0)
+        if is_ocr:
+            confidence = min(confidence, _OCR_CONFIDENCE)
         proposals.append(
             ExtractionProposal(
                 fact_key=str(fact_key),
@@ -252,22 +343,24 @@ def _parse_llm_proposals(
 
 
 async def _llm_extract(
-    page_texts: list[str], source_file: str, allowed_keys: set[str]
+    page_texts: list[PageText], source_file: str, allowed_keys: set[str]
 ) -> list[ExtractionProposal]:
     """One grounded_complete call per page; proposals validated against the page text."""
     system = _extraction_system_prompt(allowed_keys)
     proposals: list[ExtractionProposal] = []
-    for page_num, page_text in enumerate(page_texts, start=1):
-        if not page_text.strip():
+    for page_num, page in enumerate(page_texts, start=1):
+        if not page.text.strip():
             continue
         response = await grounded_complete(
             system=system,
-            user=f"Document: {source_file} — page {page_num}\n\n{page_text}",
+            user=f"Document: {source_file} — page {page_num}\n\n{page.text}",
             context_fact_ids=[],  # extraction has no fact context yet
             temperature=0.0,
         )
         proposals.extend(
-            _parse_llm_proposals(response.text, page_num, page_text, source_file, allowed_keys)
+            _parse_llm_proposals(
+                response.text, page_num, page.text, source_file, allowed_keys, is_ocr=page.ocr
+            )
         )
     return proposals
 

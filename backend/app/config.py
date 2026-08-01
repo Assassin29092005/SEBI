@@ -69,5 +69,39 @@ class Settings(BaseSettings):
     # from — not just the extracted text. See app.intake.vault.
     uploads_dir: Path = REPO_ROOT / "data" / "uploads"
 
+    # Audit log: who accessed/changed what, and when — every request is
+    # recorded (see app.audit + main.py's audit_log middleware), encrypted
+    # at rest like everything else. GET /api/health is the only exclusion
+    # (pure liveness-check noise, never security-relevant).
+    audit_dir: Path = REPO_ROOT / "data" / "audit"
+
+    # Litigation lookup (see app.intake.litigation): "indiankanoon" is the
+    # one real API this connects to — api.indiankanoon.org, a real paid
+    # service indexing published Supreme Court/High Court/tribunal
+    # judgments (₹0.50/search page; new accounts get ₹500 free trial
+    # credit at api.indiankanoon.org/signup/). It is NOT a live pending-case
+    # docket — no free public API for that exists over Indian courts
+    # (eCourts/NJDG has none); this connector can only surface litigation
+    # that has already resulted in a published judgment. Blank provider
+    # (default) or a missing token keeps the app on the offline mock — same
+    # optional-real-integration-with-mandatory-fallback pattern as the LLM
+    # provider (see app.llm.client).
+    litigation_provider: str = ""
+    indiankanoon_api_token: str = ""
+    indiankanoon_max_results: int = 10
+
+    # OCR for scanned/photographed documents (see app.intake.ocr): real SME
+    # paperwork often has no machine-readable text layer at all. Requires a
+    # real Tesseract OCR install on the machine running the backend — a
+    # system binary, not a pip package, so it doesn't ship with this repo.
+    # Missing/unreachable Tesseract means every OCR call raises
+    # ``OcrUnavailable`` and extraction falls back to whatever native text
+    # extraction produced (often nothing, for a genuinely scanned page) —
+    # same optional-real-capability pattern as the LLM provider and the
+    # litigation API. tesseract_cmd only needs setting when the binary isn't
+    # on PATH (the common case on Windows: the installer doesn't add it).
+    tesseract_cmd: str = ""
+    tesseract_lang: str = "eng"
+
 
 settings = Settings()

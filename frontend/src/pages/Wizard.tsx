@@ -90,8 +90,10 @@ const UI_COPY: Record<Lang, {
     retry: "Try again",
     uploadHeading: "Upload a document",
     uploadIntro:
-      "PDFs and text files work. We extract candidate facts and show you " +
-      "the exact snippet each one came from.",
+      "PDFs, text files, and photos of paperwork all work — including " +
+      "scanned or photographed pages with no digital text (we run OCR on " +
+      "those automatically). We extract candidate facts and show you the " +
+      "exact snippet each one came from.",
     uploadUnconfirmedWarn:
       "Extracted values are proposals. They never enter your draft until you confirm them.",
     uploadPick: "Choose a file",
@@ -136,7 +138,9 @@ const UI_COPY: Record<Lang, {
     retry: "फिर कोशिश करें",
     uploadHeading: "एक दस्तावेज़ अपलोड करें",
     uploadIntro:
-      "PDF और टेक्स्ट फ़ाइलें काम करती हैं। हम संभावित तथ्य निकालते हैं " +
+      "PDF, टेक्स्ट फ़ाइलें, और कागज़ात की तस्वीरें — सभी काम करती हैं, " +
+      "जिनमें बिना डिजिटल टेक्स्ट वाले स्कैन किए हुए पन्ने भी शामिल हैं " +
+      "(हम उन पर स्वचालित रूप से OCR चलाते हैं)। हम संभावित तथ्य निकालते हैं " +
       "और वह वाक्यांश दिखाते हैं जहाँ से हर एक आया है।",
     uploadUnconfirmedWarn:
       "निकाले गए मान केवल प्रस्ताव हैं। जब तक आप पुष्टि नहीं करते, वे मसौदे में नहीं जाते।",

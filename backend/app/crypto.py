@@ -1,7 +1,9 @@
-"""Encryption at rest for archived original uploads (see ``app.intake.vault``)
-— the only remaining consumer since facts, review state, and user accounts
-moved to Postgres (see ``app.db``); they no longer touch the filesystem at
-all, encrypted or otherwise.
+"""Encryption at rest for the two things still on the filesystem: archived
+original uploads (see ``app.intake.vault``) and the audit log (see
+``app.audit``). Facts, review state, and user accounts moved to Postgres
+(see ``app.db``) and no longer touch the filesystem at all, encrypted or
+otherwise — encryption at rest for that data is a database/infrastructure
+concern now, not application code.
 
 Fernet (AES-128-CBC + HMAC-SHA256, authenticated symmetric encryption) keyed
 by ``Settings.encryption_key``. Same fallback pattern as

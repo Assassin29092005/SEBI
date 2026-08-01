@@ -29,7 +29,7 @@ cp .env.example .env
 
 # 4. Sanity checks (should print all green — pytest needs docker compose up
 #    and a one-time `createdb drhp_studio_test`, see CLAUDE.md § Commands):
-python -m pytest tests/ -q                               # 189 passed, 1 skipped
+python -m pytest tests/ -q
 python -m ruff check backend                             # All checks passed
 cd frontend && npm run build                             # clean
 
@@ -50,7 +50,7 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | 189 (1 opt-in live-LLM skip) |
+| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -189,9 +189,16 @@ Quote these faithfully — never soften them:
 - **"Are the restated financials generated too?"** No — restated financial
   statements are auditor work by law. The tool ingests and formats them; the
   coverage score marks them explicitly out-of-scope, never silently counted.
-- **"Is the litigation search real?"** No — the demo ships a mock behind a
-  `LitigationConnector` Protocol. There is no clean free API over Indian
-  court records; a real integration is an adapter behind that seam.
+- **"Is the litigation search real?"** Yes, when configured — `Indian
+  KanoonConnector` calls the real api.indiankanoon.org API (verified
+  against their own reference client and against the live server: an
+  invalid token gets a real `401 Invalid token.` back, not a connection
+  failure). The honest caveat: IndianKanoon indexes *published judgments*,
+  not a live pending-case docket — no free public API exists over Indian
+  courts' live case status (eCourts/NJDG has none), so a clean result means
+  "no published judgment names this entity," not "no litigation exists."
+  Falls back to the offline demo mock automatically if unconfigured or
+  unreachable.
 - **"Who verified your schema?"** Human-reviewed against the consolidated
   ICDR text pinned in `data/regulation/`; `reviewed_by_human: true` in the
   schema header. The six v0.4.0 entries had their clause refs verified

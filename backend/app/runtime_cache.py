@@ -11,12 +11,15 @@ in-memory ``AppState`` had.
 from __future__ import annotations
 
 from app.generate.sections import GeneratedSection
-from app.intake.litigation import MockLitigationConnector
+from app.intake.litigation import FallbackLitigationConnector
 
 _generated_sections: list[GeneratedSection] = []
 
-# Stateless mock — recreated fresh only by reset_cache(), never by requests.
-litigation_connector = MockLitigationConnector()
+# Real API (api.indiankanoon.org) when configured, offline mock
+# otherwise/on failure — see app.intake.litigation for what this can and
+# can't tell you (published judgments only, never a live docket). Stateless
+# either way — recreated fresh only by reset_cache(), never by requests.
+litigation_connector = FallbackLitigationConnector()
 
 
 def get_generated_sections() -> list[GeneratedSection]:
