@@ -29,6 +29,7 @@ re-importing the module.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -44,15 +45,24 @@ from pydantic import BaseModel
 
 from app.assemble.bundle import build_bundle
 from app.assemble.docx_builder import assemble
+from app.audit import (
+    AuditEvent,
+    Outcome,
+    classify_request,
+    get_audit_log,
+    outcome_for_status,
+)
 from app.auth.dependencies import get_current_user, require_roles
 from app.auth.models import User
 from app.auth.router import router as auth_router
+from app.auth.security import InvalidToken, decode_access_token
+from app.auth.store import get_user_store
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
 from app.facts import Fact, FactStore, Provenance
 from app.generate.sections import GeneratedSection, generate_all
-from app.intake.litigation import LitigationRecord, MockLitigationConnector
+from app.intake.litigation import FallbackLitigationConnector, LitigationRecord
 from app.intake.uploads import ExtractionProposal, extract_facts, proposal_to_fact
 from app.intake.vault import (
     ArchivedDocumentMeta,
@@ -121,6 +131,102 @@ async def limit_body_size(request: Request, call_next: Any) -> Any:
     return await call_next(request)
 
 
+_AUDIT_EXCLUDED_PATHS = {"/api/health"}  # pure liveness-check noise, never security-relevant
+_AUTH_RESPONSE_BODY_PATHS = {"/api/auth/register", "/api/auth/login"}
+
+
+async def _resolve_actor(request: Request) -> tuple[str | None, str, Role | None]:
+    """Best-effort actor identification from the Authorization header.
+
+    Returns ``(user_id, email, role)``; email defaults to ``"anonymous"`` and
+    the other two to ``None`` when there's no valid, resolvable token — which
+    is expected for public endpoints and for requests that never
+    authenticated at all (not an error condition to raise on).
+    """
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None, "anonymous", None
+    token = header[len("bearer ") :].strip()
+    try:
+        payload = decode_access_token(token)
+    except InvalidToken:
+        return None, "anonymous", None
+    user = get_user_store().get_by_id(payload.get("sub", ""))
+    if user is None or user.disabled:
+        return None, "anonymous", None
+    return user.user_id, user.email, user.role
+
+
+@app.middleware("http")
+async def audit_log_middleware(request: Request, call_next: Any) -> Any:
+    """Record who accessed or changed what, and when — see :mod:`app.audit`.
+
+    Registered after ``limit_body_size`` so it wraps that layer too (a 413
+    rejection is itself worth an audit record). Every step here is
+    defensive: a bug in audit logging must never take down the actual
+    request it's observing.
+    """
+    path = request.url.path
+    if path in _AUDIT_EXCLUDED_PATHS:
+        return await call_next(request)
+
+    user_id, actor_email, actor_role = await _resolve_actor(request)
+
+    # Login has no token yet — peek the submitted email so a *failed* login
+    # attempt is still attributable. Reading the body here is safe: Starlette
+    # caches it, so the route handler's own body parsing downstream still
+    # works off the same cached bytes.
+    attempted_login_email: str | None = None
+    if path == "/api/auth/login" and request.method == "POST":
+        try:
+            attempted_login_email = json.loads(await request.body()).get("email")
+        except Exception:  # noqa: BLE001 — best-effort only, never blocks the request
+            attempted_login_email = None
+
+    response = await call_next(request)
+
+    # Login/register succeed with no prior token — the actor IS the account
+    # that request just authenticated/created. Buffer + replay the response
+    # body so we can read it without breaking the client's copy.
+    if path in _AUTH_RESPONSE_BODY_PATHS and response.status_code == 200:
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        response = Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+        try:
+            user_payload = json.loads(body)["user"]
+            actor_email = user_payload["email"]
+            actor_role = user_payload["role"]
+        except Exception:  # noqa: BLE001 — malformed body is not this middleware's problem
+            pass
+    elif path == "/api/auth/login" and attempted_login_email:
+        actor_email = attempted_login_email
+
+    try:
+        action, resource_type, resource_id = classify_request(request.method, path)
+        get_audit_log().record(
+            AuditEvent(
+                actor_user_id=user_id,
+                actor_email=actor_email,
+                actor_role=actor_role,
+                method=request.method,
+                path=path,
+                status_code=response.status_code,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome=outcome_for_status(response.status_code),
+            )
+        )
+    except Exception:  # noqa: BLE001 — audit logging must never break the real request
+        logger.exception("audit logging failed for %s %s", request.method, path)
+
+    return response
+
+
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 
 # Assembled .docx files land here; the directory is created on demand and is
@@ -148,7 +254,12 @@ class AppState:
     fact_store: FactStore = field(default_factory=FactStore)
     review_state: ReviewState = field(default_factory=ReviewState)
     generated_sections: list[GeneratedSection] = field(default_factory=list)
-    litigation_connector: MockLitigationConnector = field(default_factory=MockLitigationConnector)
+    # Real API (api.indiankanoon.org) when configured, offline mock
+    # otherwise/on failure — see app.intake.litigation for what this can
+    # and can't tell you (published judgments only, never a live docket).
+    litigation_connector: FallbackLitigationConnector = field(
+        default_factory=FallbackLitigationConnector
+    )
 
 
 def create_state() -> AppState:
@@ -162,7 +273,8 @@ def restore_persisted_state(target: AppState) -> None:
     keeps a backend restart mid-demo from losing the session. ``create_state()``
     stays a pure fresh-state factory so :func:`reset_state` semantics (clean
     slate for tests) are untouched. The litigation connector is not restored —
-    it is a stateless mock recreated by ``create_state()``.
+    it is stateless (an HTTP client wrapper, or the offline mock) and is
+    recreated fresh by ``create_state()``.
     """
     if not settings.persist_session:
         return
@@ -187,8 +299,11 @@ def reset_state() -> AppState:
     gated on ``settings.persist_session``: reset means clean slate, and tests
     rely on a stale snapshot never rehydrating into a later run — and clears
     the archived-uploads vault for the same reason. Never touches the
-    checklist (which stays module-level) or user accounts (a session reset
-    is not an account wipe — see ``app.auth.store.reset_user_store`` for that).
+    checklist (which stays module-level), user accounts, or the audit log (a
+    session reset is not an account wipe or an audit-trail wipe — see
+    ``app.auth.store.reset_user_store`` / ``app.audit.reset_audit_log`` for
+    those; a compliance trail that quietly disappears on "reset demo" would
+    defeat the point of having one).
     """
     global state
     state = create_state()
@@ -749,4 +864,36 @@ async def export_bundle(
         path=str(bundle_path),
         media_type="application/zip",
         filename=BUNDLE_FILENAME,
+    )
+
+
+# --------------------------------------------------------------------------
+# Audit log
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/audit")
+async def view_audit_log(
+    actor_email: str | None = Query(default=None, max_length=254),
+    action: str | None = Query(default=None, max_length=100),
+    resource_type: str | None = Query(default=None, max_length=50),
+    outcome: Outcome | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=2000),
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> list[AuditEvent]:
+    """Compliance review: who accessed or changed what, and when.
+
+    Banker-only — the same intermediary who holds certification authority
+    over the draft is the one with oversight over the audit trail, matching
+    the certification-lock philosophy everywhere else in this app. Every
+    request against the API (bar the health check) is recorded, including
+    denied ones, so this also answers "did anyone try something they
+    shouldn't have."
+    """
+    return get_audit_log().list_events(
+        actor_email=actor_email,
+        action=action,
+        resource_type=resource_type,
+        outcome=outcome,
+        limit=limit,
     )

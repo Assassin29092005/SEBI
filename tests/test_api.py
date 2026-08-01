@@ -46,6 +46,7 @@ from fastapi.testclient import TestClient
 
 from app import main as main_module
 from app.assemble.bundle import BUNDLE_MEMBERS
+from app.audit import reset_audit_log
 from app.auth.store import reset_user_store
 from app.config import settings
 from app.review.workflow import SectionState
@@ -80,28 +81,32 @@ def _register(client: TestClient, *, email: str, name: str, role: str, invite_co
 def fresh_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[TestClient]:
     """Reset the module state before every test and yield a promoter-authenticated TestClient.
 
-    Persistence is disabled AND ``session_dir``/``auth_dir``/``uploads_dir``
-    are redirected into ``tmp_path``: ``reset_state()`` unconditionally
-    clears the snapshot at ``settings.session_dir`` (and the uploads vault at
-    ``settings.uploads_dir``), so without the redirect the suite would delete
-    a developer's live ``data/session/``/``data/uploads/`` contents (and, for
-    auth, the real registered-users file). With the redirect, tests can never
-    read, write, or delete real on-disk state.
+    Persistence is disabled AND ``session_dir``/``auth_dir``/``uploads_dir``/
+    ``audit_dir`` are redirected into ``tmp_path``: ``reset_state()``
+    unconditionally clears the snapshot at ``settings.session_dir`` (and the
+    uploads vault at ``settings.uploads_dir``), so without the redirect the
+    suite would delete a developer's live ``data/session/``/``data/uploads/``
+    contents (and, for auth/audit, the real registered-users file / audit
+    trail). With the redirect, tests can never read, write, or delete real
+    on-disk state.
     """
     monkeypatch.setattr(settings, "persist_session", False)
     monkeypatch.setattr(settings, "session_dir", tmp_path / "session")
     monkeypatch.setattr(settings, "auth_dir", tmp_path / "auth")
     monkeypatch.setattr(settings, "uploads_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "audit_dir", tmp_path / "audit")
     monkeypatch.setattr(settings, "banker_invite_code", TEST_BANKER_INVITE)
     monkeypatch.setattr(settings, "auditor_invite_code", TEST_AUDITOR_INVITE)
     main_module.reset_state()
     reset_user_store()
+    reset_audit_log()
     with TestClient(main_module.app) as client:
         token = _register(client, email="promoter@test.example", name="Test Promoter", role="promoter")
         client.headers["Authorization"] = f"Bearer {token}"
         yield client
     main_module.reset_state()
     reset_user_store()
+    reset_audit_log()
 
 
 @pytest.fixture()
@@ -585,9 +590,11 @@ def test_session_persists_across_simulated_restart(
     monkeypatch.setattr(settings, "session_dir", tmp_path / "session")
     monkeypatch.setattr(settings, "auth_dir", tmp_path / "auth")
     monkeypatch.setattr(settings, "uploads_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "audit_dir", tmp_path / "audit")
     monkeypatch.setattr(settings, "banker_invite_code", TEST_BANKER_INVITE)
     main_module.reset_state()
     reset_user_store()
+    reset_audit_log()
     try:
         with TestClient(main_module.app) as client:
             promoter_token = _register(
@@ -652,6 +659,7 @@ def test_session_persists_across_simulated_restart(
         # still monkeypatched here — the real data/session/ is never touched).
         main_module.reset_state()
         reset_user_store()
+        reset_audit_log()
 
 
 def test_proposal_accept_role_tagged(
@@ -883,3 +891,115 @@ def test_register_rejects_overlong_password(fresh_app: TestClient) -> None:
         },
     )
     assert resp.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Audit log: who accessed or changed what, and when
+# --------------------------------------------------------------------------
+
+
+def test_audit_log_is_banker_only(fresh_app: TestClient) -> None:
+    resp = fresh_app.get("/api/audit")
+    assert resp.status_code == 403
+
+
+def test_audit_log_records_promoter_actions_with_correct_actor(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    fact_id = _seed_fact(
+        fresh_app, key="issuer_identity", value="Sunrise Agrotech Ltd", detail="wizard:issuer_identity"
+    )
+
+    events = fresh_app.get("/api/audit", headers=banker_headers).json()
+    actions = {(e["action"], e["actor_email"]) for e in events}
+    assert ("add_fact", "promoter@test.example") in actions
+    assert ("confirm_fact", "promoter@test.example") in actions
+
+    confirm_events = [e for e in events if e["action"] == "confirm_fact"]
+    assert any(e["resource_id"] == fact_id for e in confirm_events)
+    assert all(e["outcome"] == "success" for e in confirm_events)
+
+
+def test_audit_log_records_access_denials(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    entry_id = _blocker_entry_ids()[0]
+    denied = fresh_app.post(f"/api/review/{entry_id}/advance", json={"to": "reviewed"})
+    assert denied.status_code == 403
+
+    events = fresh_app.get(
+        "/api/audit", headers=banker_headers, params={"outcome": "denied"}
+    ).json()
+    assert any(
+        e["action"] == "advance_review" and e["actor_email"] == "promoter@test.example"
+        for e in events
+    )
+
+
+def test_audit_log_records_login_success_and_failure(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    ok = fresh_app.post(
+        "/api/auth/login", json={"email": "promoter@test.example", "password": TEST_PASSWORD}
+    )
+    assert ok.status_code == 200
+
+    bad = fresh_app.post(
+        "/api/auth/login",
+        json={"email": "promoter@test.example", "password": "definitely-wrong"},
+    )
+    assert bad.status_code == 401
+
+    events = fresh_app.get("/api/audit", headers=banker_headers).json()
+    logins = [e for e in events if e["action"] == "login"]
+    assert any(
+        e["outcome"] == "success" and e["actor_email"] == "promoter@test.example" for e in logins
+    )
+    assert any(
+        e["outcome"] == "denied" and e["actor_email"] == "promoter@test.example" for e in logins
+    )
+
+
+def test_audit_log_records_registration(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    events = fresh_app.get("/api/audit", headers=banker_headers).json()
+    registered_emails = {e["actor_email"] for e in events if e["action"] == "register"}
+    # fresh_app registered the promoter, banker_headers registered the banker.
+    assert "promoter@test.example" in registered_emails
+    assert "banker@test.example" in registered_emails
+
+
+def test_audit_log_records_document_download(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    body = b"Issue Size: Rs 14.00 crore\n"
+    fresh_app.post(
+        "/api/uploads/extract", files={"file": ("prospectus.txt", body, "text/plain")}
+    )
+    doc_id = fresh_app.get("/api/uploads").json()[0]["document_id"]
+    fresh_app.get(f"/api/uploads/{doc_id}")
+
+    events = fresh_app.get("/api/audit", headers=banker_headers).json()
+    downloads = [e for e in events if e["action"] == "download_document"]
+    assert any(e["resource_id"] == doc_id and e["outcome"] == "success" for e in downloads)
+
+
+def test_audit_log_filters_by_actor_email_via_query_param(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    fresh_app.get("/api/facts")  # a promoter-attributed action to filter for
+    only_promoter = fresh_app.get(
+        "/api/audit", headers=banker_headers, params={"actor_email": "promoter@test.example"}
+    ).json()
+    assert only_promoter
+    assert all(e["actor_email"] == "promoter@test.example" for e in only_promoter)
+
+
+def test_audit_log_excludes_health_check(
+    fresh_app: TestClient, banker_headers: dict[str, str]
+) -> None:
+    fresh_app.get("/api/health")
+    fresh_app.get("/api/health")
+    events = fresh_app.get("/api/audit", headers=banker_headers).json()
+    assert not any(e["path"] == "/api/health" for e in events)

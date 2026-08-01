@@ -175,7 +175,7 @@ function DueDiligenceUpload({ reviewState, onUploadComplete }: DueDiligenceUploa
           type="file"
           className="hidden"
           disabled={uploading}
-          accept=".pdf,.txt"
+          accept=".pdf,.txt,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.webp"
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) handleUpload(file);

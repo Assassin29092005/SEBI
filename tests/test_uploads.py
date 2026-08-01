@@ -1,20 +1,49 @@
-"""Upload extraction: deterministic label scan, INR parsing, proposal → Fact provenance."""
+"""Upload extraction: deterministic label scan, INR parsing, proposal → Fact provenance,
+OCR routing for scanned PDFs/images."""
 
 from __future__ import annotations
 
 import asyncio
+import io
 
+import fitz
 import pytest
+from PIL import Image
 
 from app.facts import SourceKind
+from app.intake.ocr import is_ocr_available
 from app.intake.uploads import (
+    _DETERMINISTIC_CONFIDENCE,
+    _OCR_CONFIDENCE,
     ExtractionProposal,
+    PageText,
+    _deterministic_extract,
+    _looks_scanned,
+    _page_texts,
     _parse_llm_proposals,
     extract_facts,
     parse_inr_to_paise,
     proposal_to_fact,
 )
 from app.schema.models import Role
+
+
+def _make_pdf_bytes(width: float = 400, height: float = 200, text: str | None = None) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page(width=width, height=height)
+    if text:
+        for i, line in enumerate(text.splitlines()):
+            page.insert_text((20, 30 + i * 20), line)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
+def _make_blank_image_bytes(size: tuple[int, int] = (400, 200)) -> bytes:
+    image = Image.new("RGB", size, color="white")
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # --------------------------------------------------------------------------
@@ -144,20 +173,22 @@ def test_proposal_to_fact_returns_unconfirmed_document_provenance() -> None:
 
 
 # --------------------------------------------------------------------------
-# PDF smoke test — pypdf.PdfWriter cannot embed a text stream without a
-# properly-encoded font, and extract_text() on a manually-built content stream
-# reliably returns an empty string. Rather than shipping a brittle assertion,
-# state the limitation and skip.
+# Real PDF extraction — a genuine text-layer PDF, built with PyMuPDF (which
+# this app now depends on for OCR page rendering, see app.intake.ocr) rather
+# than a mocked/skipped case.
 # --------------------------------------------------------------------------
 
 
-def test_pdf_extraction_smoke_skipped_documented_limitation() -> None:
-    pytest.skip(
-        "pypdf.PdfWriter has no trivial API for embedding a text content stream "
-        "readable by PdfReader.extract_text(); a real PDF smoke test needs a "
-        "pre-baked fixture PDF or reportlab. Deterministic path is exercised by "
-        "the .txt tests above."
-    )
+def test_pdf_with_native_text_layer_extracts_without_ocr() -> None:
+    pdf_bytes = _make_pdf_bytes(text="Issue Size: Rs 14.00 crore\nSme Exchange: NSE Emerge")
+    proposals = asyncio.run(extract_facts("prospectus.pdf", pdf_bytes))
+
+    issue_size = [p for p in proposals if p.fact_key == "issue_size_paise"]
+    assert len(issue_size) == 1
+    assert issue_size[0].value == 14 * 10**9
+    assert issue_size[0].page == 1
+    # a native text layer exists — never fall back to OCR confidence for it
+    assert issue_size[0].confidence == _DETERMINISTIC_CONFIDENCE
 
 
 def test_proposal_to_fact_role_tagged_for_auditor() -> None:
@@ -172,3 +203,141 @@ def test_proposal_to_fact_role_tagged_for_auditor() -> None:
     fact = proposal_to_fact(proposal, supplied_by=Role.AUDITOR)
     assert fact.supplied_by is Role.AUDITOR
     assert not fact.confirmed
+
+
+# --------------------------------------------------------------------------
+# _looks_scanned — the native-text-layer-too-thin heuristic
+# --------------------------------------------------------------------------
+
+
+def test_looks_scanned_true_for_empty_or_near_empty_text() -> None:
+    assert _looks_scanned("") is True
+    assert _looks_scanned("   \n\n  ") is True
+    assert _looks_scanned("a b") is True  # a handful of stray chars — watermark noise
+
+
+def test_looks_scanned_false_for_real_disclosure_prose() -> None:
+    assert _looks_scanned("Issue Size: Rs 14.00 crore") is False
+
+
+# --------------------------------------------------------------------------
+# _page_texts routing: scanned PDF pages and image uploads fall back
+# gracefully when OCR isn't available (true in this environment — no
+# Tesseract binary — so this exercises the real fallback path, not a mock)
+# --------------------------------------------------------------------------
+
+
+def test_scanned_pdf_page_falls_back_to_empty_text_without_ocr() -> None:
+    assert is_ocr_available() is False, "this test asserts the no-OCR fallback path"
+    # A page with NO insert_text call at all — genuinely no text layer,
+    # the same shape a real scanned/photographed page would have.
+    pdf_bytes = _make_pdf_bytes(text=None)
+    pages = _page_texts("scanned.pdf", pdf_bytes)
+    assert len(pages) == 1
+    assert pages[0] == PageText(text="", ocr=False)
+
+
+def test_scanned_pdf_extraction_yields_no_proposals_not_a_crash() -> None:
+    pdf_bytes = _make_pdf_bytes(text=None)
+    proposals = asyncio.run(extract_facts("scanned.pdf", pdf_bytes))
+    assert proposals == []
+
+
+def test_image_upload_falls_back_to_empty_text_without_ocr() -> None:
+    assert is_ocr_available() is False, "this test asserts the no-OCR fallback path"
+    pages = _page_texts("photo.png", _make_blank_image_bytes())
+    assert pages == [PageText(text="", ocr=False)]
+
+
+def test_image_upload_extraction_yields_no_proposals_not_a_crash() -> None:
+    proposals = asyncio.run(extract_facts("photo.jpg", _make_blank_image_bytes()))
+    assert proposals == []
+
+
+def test_page_texts_recognises_every_supported_image_extension() -> None:
+    for ext in (".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"):
+        pages = _page_texts(f"document{ext}", _make_blank_image_bytes())
+        assert len(pages) == 1, f"extension {ext} was not routed as an image"
+
+
+def test_txt_upload_is_never_routed_through_ocr() -> None:
+    pages = _page_texts("plain.txt", b"Issue Size: Rs 14.00 crore")
+    assert pages == [PageText(text="Issue Size: Rs 14.00 crore", ocr=False)]
+
+
+# --------------------------------------------------------------------------
+# Confidence downgrade for OCR-sourced text (deterministic + LLM paths)
+# --------------------------------------------------------------------------
+
+
+def test_deterministic_extract_uses_ocr_confidence_for_ocr_pages() -> None:
+    pages = [PageText(text="Issue Size: Rs 14.00 crore", ocr=True)]
+    proposals = _deterministic_extract(pages, "scanned.pdf", {"issue_size_paise"})
+    assert len(proposals) == 1
+    assert proposals[0].confidence == _OCR_CONFIDENCE
+    assert proposals[0].confidence < _DETERMINISTIC_CONFIDENCE
+
+
+def test_deterministic_extract_uses_native_confidence_for_native_pages() -> None:
+    pages = [PageText(text="Issue Size: Rs 14.00 crore", ocr=False)]
+    proposals = _deterministic_extract(pages, "term_sheet.txt", {"issue_size_paise"})
+    assert len(proposals) == 1
+    assert proposals[0].confidence == _DETERMINISTIC_CONFIDENCE
+
+
+def test_llm_proposal_confidence_capped_when_source_page_is_ocr() -> None:
+    page_text = "Issue Size: Rs 14.00 crore"
+    # The model claims high confidence — must still be capped, since it has
+    # no way to know its source page came from character recognition.
+    response = (
+        '[{"fact_key": "issue_size_paise", "value": 14000000000,'
+        ' "page": 1, "snippet": "Issue Size: Rs 14.00 crore", "confidence": 0.95}]'
+    )
+    proposals = _parse_llm_proposals(
+        response, 1, page_text, "scanned.pdf", {"issue_size_paise"}, is_ocr=True
+    )
+    assert len(proposals) == 1
+    assert proposals[0].confidence == _OCR_CONFIDENCE
+
+
+def test_llm_proposal_confidence_uncapped_when_source_page_is_native() -> None:
+    page_text = "Issue Size: Rs 14.00 crore"
+    response = (
+        '[{"fact_key": "issue_size_paise", "value": 14000000000,'
+        ' "page": 1, "snippet": "Issue Size: Rs 14.00 crore", "confidence": 0.95}]'
+    )
+    proposals = _parse_llm_proposals(
+        response, 1, page_text, "term_sheet.txt", {"issue_size_paise"}, is_ocr=False
+    )
+    assert len(proposals) == 1
+    assert proposals[0].confidence == 0.95
+
+
+# --------------------------------------------------------------------------
+# Real OCR end-to-end — skipped on machines without a Tesseract install
+# (this sandbox included), same pattern as test_ocr.py
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not is_ocr_available(), reason="Tesseract OCR is not installed")
+def test_real_ocr_extracts_facts_from_a_scanned_looking_pdf_page() -> None:
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (600, 100), color="white")
+    ImageDraw.Draw(image).text((10, 40), "Issue Size: Rs 14.00 crore", fill="black")
+
+    # Build a PDF page whose only content is that image — no text layer —
+    # the same shape a real scanned page has.
+    doc = fitz.open()
+    page = doc.new_page(width=600, height=100)
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    page.insert_image(page.rect, stream=buf.getvalue())
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    proposals = asyncio.run(extract_facts("scanned_prospectus.pdf", pdf_bytes))
+    issue_size = [p for p in proposals if p.fact_key == "issue_size_paise"]
+    assert len(issue_size) == 1
+    assert issue_size[0].value == 14 * 10**9
+    assert issue_size[0].confidence == _OCR_CONFIDENCE

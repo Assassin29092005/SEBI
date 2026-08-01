@@ -30,6 +30,9 @@ data/auth/
 # Archived original uploads, encrypted at rest (see backend/app/intake/vault.py)
 data/uploads/
 
+# Audit log, encrypted at rest (see backend/app/audit.py)
+data/audit/
+
 # OS / editor
 .DS_Store
 Thumbs.db
