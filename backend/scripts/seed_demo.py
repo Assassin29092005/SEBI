@@ -9,10 +9,11 @@ Every endpoint now requires a bearer token (see app.auth): this script
 registers (or logs into, on a repeat run) a demo promoter account first and
 attaches the token to every request that follows.
 
-State is in-memory on the server (see app.main.AppState); restart the
-backend for a clean slate before re-seeding. The demo promoter account
-persists across restarts (see app.auth.store) — re-running this script
-against a fresh backend logs into the same account rather than erroring.
+Facts, review state, and the demo promoter account are durable in Postgres
+(see app.db) — re-running this script against the same database logs into
+the existing demo account rather than erroring, and adds to whatever facts
+are already there. For a clean slate, reset the database (e.g. drop and
+re-``alembic upgrade head``) before re-seeding.
 
 Usage (from the repo root, with the backend running on 127.0.0.1:8000):
 

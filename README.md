@@ -50,18 +50,19 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   chapter YAMLs for the benchmark.
 - `data/demo_company/` — synthetic issuer *Sunrise Agrotech Ltd* with a
   deliberately planted `issue_size_paise` contradiction for the live demo.
-- `data/session/`, `data/auth/`, `data/uploads/` — atomic, encrypted-at-rest
-  snapshots of the running app state, user accounts, and archived source
-  uploads respectively (all gitignored; restored on backend restart — see
-  `app.crypto`).
-- `tests/` — 200 passing backend tests.
+- `data/uploads/` — encrypted-at-rest archive of original source uploads
+  (gitignored; see `app.crypto`, `app.intake.vault`). Facts, review state,
+  and user accounts live in Postgres, not on disk — see `app.db`.
+- `tests/` — 189 passing backend tests (needs a running Postgres — see below).
 
 ## Run it
 
 ```bash
 # Backend
 pip install -e "backend[dev]"
-uvicorn app.main:app --reload --app-dir backend       # 127.0.0.1:8000
+docker compose up -d                                   # Postgres (repo-root docker-compose.yml)
+cd backend && alembic upgrade head && cd ..             # apply migrations
+uvicorn app.main:app --reload --app-dir backend         # 127.0.0.1:8000
 ```
 
 ```bash
@@ -128,7 +129,7 @@ deterministic path.
 | **Document assembly** (`app.assemble.docx_builder`) | `python-docx` layout. Cover page shows both issue-size values with a red `CONTRADICTION DETECTED` line when confirmed sources disagree. Merchant-banker disclaimer + `DRAFT — NOT FOR FILING` notice. `[REQUIRES INPUT]` runs bold red. Superscript citation markers + per-entry `Sources` list. | None. Pure templating. |
 | **Bundle export** (`app.assemble.bundle`) | `zipfile.ZIP_DEFLATED` package: both `.docx` + JSON dumps of every validator + full fact-provenance ledger + review audit trail + manifest with `regulation`, `amended_through`, `schema_version`, `reviewed_by_human`. Gated by the certification lock. | None. Pure packaging. |
 | **Litigation lookup** (`app.intake.litigation`) | Loads `data/demo_company/litigation_records.json` for entities containing `"sunrise agrotech"` behind a `LitigationConnector` Protocol. Missing file / bad JSON returns `[]` with a warning log — never crashes. | None. Real integrations plug in behind the same Protocol seam. |
-| **Persistence** (`app.persistence`) | Atomic, encrypted-at-rest snapshot to `data/session/session.enc` after every mutating endpoint (write to `.tmp`, then `os.replace`; see `app.crypto`). On boot, corrupt/undecryptable-file-safe load restores the fact store, review state, and cached sections. | None. Pure `pathlib` + `json` (encryption via `cryptography`). |
+| **Persistence** (`app.db`, `app.facts_repo`, `app.review.repo`, `app.auth.store`) | Facts, review state, and user accounts are written directly to Postgres on every mutating endpoint — durability comes from Postgres's own write-ahead log, not application code. A backend restart or crash loses nothing; only the process-local generated-sections cache (`app.runtime_cache`) needs a fresh `POST /api/generate`. | None. SQLModel + `asyncpg`, no LLM involvement. |
 | **Wizard question copy** (`app.intake.wizard`) | Reads `question_copy.yaml`; per key returns `{prompt, help, input_hint}` in EN or Hindi. Fallback humanises the raw key when the copy map has no entry — never raises. | None. Pure YAML. |
 | **Schema, review workflow, fact store** | Pydantic + integer paise math. No external calls. | None. |
 
