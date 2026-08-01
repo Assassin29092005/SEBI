@@ -279,6 +279,55 @@ export interface ArithmeticFinding {
   clause_ref: string | null;
 }
 
+// The four newer deterministic compliance checkers — all no-LLM, all over
+// confirmed facts only. Each mirrors its backend module's FindingKind Literal.
+
+export type IdentityFormatFindingKind =
+  | "invalid_pan"
+  | "invalid_cin"
+  | "invalid_gstin"
+  | "invalid_din";
+
+export interface IdentityFormatFinding {
+  kind: IdentityFormatFindingKind;
+  entity: string; // e.g. "issuer", "promoter: Rakesh Menon"
+  field: "pan" | "cin" | "gstin" | "din";
+  value: string;
+  detail: string;
+  severity: Severity;
+  clause_ref: string;
+}
+
+export type PromoterLockinFindingKind = "mpc_shortfall" | "lockin_bifurcation_missing";
+
+export interface PromoterLockinFinding {
+  kind: PromoterLockinFindingKind;
+  detail: string;
+  severity: Severity;
+  clause_ref: string;
+}
+
+export type PricingFindingKind =
+  | "price_band_invalid_range"
+  | "price_band_spread_exceeds_cap"
+  | "floor_below_face_value"
+  | "face_value_mismatch";
+
+export interface PricingFinding {
+  kind: PricingFindingKind;
+  detail: string;
+  severity: Severity;
+  clause_ref: string;
+}
+
+export interface RptFinding {
+  kind: "rpt_party_not_otherwise_disclosed";
+  entity_name: string;
+  detail: string;
+  severity: Severity;
+  clause_ref: string;
+}
+
 // --------------------------------------------------------------------------
 // Coverage (backend/app/coverage.py)
 // --------------------------------------------------------------------------
@@ -475,6 +524,18 @@ export const getBoilerplate = (): Promise<BoilerplateFlag[]> =>
 
 export const getArithmetic = (): Promise<ArithmeticFinding[]> =>
   apiGet<ArithmeticFinding[]>("/api/validate/arithmetic");
+
+export const getIdentityFormatFindings = (): Promise<IdentityFormatFinding[]> =>
+  apiGet<IdentityFormatFinding[]>("/api/validate/identity");
+
+export const getPromoterLockinFindings = (): Promise<PromoterLockinFinding[]> =>
+  apiGet<PromoterLockinFinding[]>("/api/validate/promoter-lockin");
+
+export const getPricingFindings = (): Promise<PricingFinding[]> =>
+  apiGet<PricingFinding[]>("/api/validate/pricing");
+
+export const getRptFindings = (): Promise<RptFinding[]> =>
+  apiGet<RptFinding[]>("/api/validate/rpt");
 
 export const getExaminer = (): Promise<Objection[]> =>
   apiGet<Objection[]>("/api/validate/examiner");

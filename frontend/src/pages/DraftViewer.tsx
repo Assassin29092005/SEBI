@@ -11,6 +11,10 @@ import {
   getExaminer,
   getFacts,
   getGaps,
+  getIdentityFormatFindings,
+  getPricingFindings,
+  getPromoterLockinFindings,
+  getRptFindings,
   getSections,
   getSemantic,
   postGenerate,
@@ -23,9 +27,13 @@ import {
   type Fact,
   type GapReport,
   type GeneratedSection,
+  type IdentityFormatFinding,
   type Objection,
+  type PricingFinding,
+  type PromoterLockinFinding,
   type ReferenceBenchmark,
   type Role,
+  type RptFinding,
   type Severity,
 } from "../api/client";
 
@@ -596,6 +604,44 @@ function ArithmeticList({ items }: { items: ArithmeticFinding[] }) {
   );
 }
 
+// Shared renderer for the four newer deterministic compliance checkers
+// (identity formats, promoter lock-in, pricing, RPT) — they all share the
+// same {kind, detail, severity, clause_ref} finding shape as ArithmeticFinding.
+interface SimpleFinding {
+  kind: string;
+  detail: string;
+  severity: Severity;
+  clause_ref: string;
+}
+
+function ComplianceFindingList({
+  items,
+  cleanMessage,
+}: {
+  items: SimpleFinding[];
+  cleanMessage: string;
+}) {
+  if (items.length === 0) {
+    return <p className="text-sm text-green-700">{cleanMessage}</p>;
+  }
+  return (
+    <ul className="space-y-2">
+      {items.map((f, i) => (
+        <li key={`${f.kind}-${i}`} className="border border-gray-200 rounded bg-white p-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <SeverityBadge severity={f.severity} />
+            <span className="font-mono text-xs text-gray-500">{f.kind}</span>
+            <span className="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs">
+              {f.clause_ref}
+            </span>
+          </div>
+          <div className="text-gray-800">{f.detail}</div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // Role-aware routing language, matching the gap report's framing.
 const ROUTED_LABEL: Record<Role, string> = {
   promoter: "promoter-fixable",
@@ -849,6 +895,18 @@ export default function DraftViewer() {
   const [arithmetic, setArithmetic] = useState<ArithmeticFinding[] | null>(null);
   const [arithmeticState, setArithmeticState] = useState<LoadState>("idle");
 
+  const [identityFindings, setIdentityFindings] = useState<IdentityFormatFinding[] | null>(null);
+  const [identityState, setIdentityState] = useState<LoadState>("idle");
+
+  const [lockinFindings, setLockinFindings] = useState<PromoterLockinFinding[] | null>(null);
+  const [lockinState, setLockinState] = useState<LoadState>("idle");
+
+  const [pricingFindings, setPricingFindings] = useState<PricingFinding[] | null>(null);
+  const [pricingState, setPricingState] = useState<LoadState>("idle");
+
+  const [rptFindings, setRptFindings] = useState<RptFinding[] | null>(null);
+  const [rptState, setRptState] = useState<LoadState>("idle");
+
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
   const [gapsState, setGapsState] = useState<LoadState>("idle");
   const [gapsOpen, setGapsOpen] = useState(false);
@@ -982,6 +1040,50 @@ export default function DraftViewer() {
       setArithmeticState("error");
     }
   }, []);
+
+  const runIdentity = async () => {
+    setIdentityState("loading");
+    try {
+      const data = await getIdentityFormatFindings();
+      setIdentityFindings(data);
+      setIdentityState("ready");
+    } catch {
+      setIdentityState("error");
+    }
+  };
+
+  const runPromoterLockin = async () => {
+    setLockinState("loading");
+    try {
+      const data = await getPromoterLockinFindings();
+      setLockinFindings(data);
+      setLockinState("ready");
+    } catch {
+      setLockinState("error");
+    }
+  };
+
+  const runPricing = async () => {
+    setPricingState("loading");
+    try {
+      const data = await getPricingFindings();
+      setPricingFindings(data);
+      setPricingState("ready");
+    } catch {
+      setPricingState("error");
+    }
+  };
+
+  const runRpt = async () => {
+    setRptState("loading");
+    try {
+      const data = await getRptFindings();
+      setRptFindings(data);
+      setRptState("ready");
+    } catch {
+      setRptState("error");
+    }
+  };
 
   const loadGaps = useCallback(async () => {
     setGapsState("loading");
@@ -1341,6 +1443,86 @@ export default function DraftViewer() {
                         with the issue size.
                       </p>
                     )
+                  ) : null}
+                </div>
+
+                <div id="panel-identity">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runIdentity}
+                      disabled={identityState === "loading"}
+                    >
+                      {identityState === "loading" ? "Checking…" : "PAN/CIN/GSTIN/DIN format"}
+                    </button>
+                    <StatusPill state={identityState} label="identity formats" />
+                  </div>
+                  {identityFindings !== null ? (
+                    <ComplianceFindingList
+                      items={identityFindings}
+                      cleanMessage="All PAN/CIN/GSTIN/DIN values on file match their official format."
+                    />
+                  ) : null}
+                </div>
+
+                <div id="panel-promoter-lockin">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runPromoterLockin}
+                      disabled={lockinState === "loading"}
+                    >
+                      {lockinState === "loading" ? "Checking…" : "Promoter lock-in"}
+                    </button>
+                    <StatusPill state={lockinState} label="promoter lock-in" />
+                  </div>
+                  {lockinFindings !== null ? (
+                    <ComplianceFindingList
+                      items={lockinFindings}
+                      cleanMessage="Minimum promoters' contribution and lock-in disclosure check out."
+                    />
+                  ) : null}
+                </div>
+
+                <div id="panel-pricing">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runPricing}
+                      disabled={pricingState === "loading"}
+                    >
+                      {pricingState === "loading" ? "Checking…" : "Pricing / valuation"}
+                    </button>
+                    <StatusPill state={pricingState} label="pricing" />
+                  </div>
+                  {pricingFindings !== null ? (
+                    <ComplianceFindingList
+                      items={pricingFindings}
+                      cleanMessage="Price band and face value are internally consistent."
+                    />
+                  ) : null}
+                </div>
+
+                <div id="panel-rpt">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runRpt}
+                      disabled={rptState === "loading"}
+                    >
+                      {rptState === "loading" ? "Checking…" : "Related-party cross-check"}
+                    </button>
+                    <StatusPill state={rptState} label="RPT" />
+                  </div>
+                  {rptFindings !== null ? (
+                    <ComplianceFindingList
+                      items={rptFindings.map((f) => ({ ...f, kind: f.entity_name }))}
+                      cleanMessage="Every related party named in the RPT summary is disclosed elsewhere."
+                    />
                   ) : null}
                 </div>
 

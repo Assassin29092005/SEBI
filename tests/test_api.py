@@ -386,6 +386,24 @@ async def test_validate_arithmetic_returns_findings_list(fresh_app: AsyncClient)
         assert {"kind", "detail", "severity"} <= set(finding)
 
 
+async def test_validate_new_compliance_endpoints_return_findings_lists(
+    fresh_app: AsyncClient,
+) -> None:
+    """Shape only for the four new deterministic compliance checkers."""
+    for path in (
+        "/api/validate/identity",
+        "/api/validate/promoter-lockin",
+        "/api/validate/pricing",
+        "/api/validate/rpt",
+    ):
+        resp = await fresh_app.get(path)
+        assert resp.status_code == 200, f"{path}: {resp.text}"
+        findings = resp.json()
+        assert isinstance(findings, list)
+        for finding in findings:
+            assert {"kind", "detail", "severity"} <= set(finding)
+
+
 async def test_coverage_and_gaps(fresh_app: AsyncClient) -> None:
     await fresh_app.post("/api/generate")
     cov = (await fresh_app.get("/api/coverage")).json()

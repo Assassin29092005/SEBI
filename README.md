@@ -57,7 +57,7 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   source uploads and the access-log audit trail respectively (gitignored;
   see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 248 backend test functions (needs a running Postgres — see below).
+- `tests/` — 285 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 
@@ -128,6 +128,10 @@ deterministic path.
 | **Boilerplate detector** (`app.validate.boilerplate`) | 15-phrase generic-filler list (`"world-class"`, `"best-in-class"`, `"cutting-edge"`, …) + 8-gram overlap against every `*.txt` in `data/reference_drhps/`. Marker-aware (skips `[REQUIRES INPUT]` spans). | None. Pure text analysis. |
 | **Adversarial examiner** (`app.validate.examiner`) | Emits an objection per unresolved `[REQUIRES INPUT]` marker; an "uncited quantitative claim" objection when a section has digits but no citations; contradiction-driven objections; arithmetic-finding objections; boilerplate-flag objections quoting the flagged span; low-confidence extraction objections (document-sourced facts with confidence < 0.7). | Optional LLM pass raises SME-exchange-reviewer objections. Any returned `clause_ref` that doesn't exactly match the checklist is sanitised to `None` — the examiner never invents citations. Skipped silently on `LLMUnavailable`. |
 | **Objects arithmetic** (`app.validate.arithmetic`) | Integer paise arithmetic. `allocated = sum(objects_of_issue[].amount_paise) + gcp_amount_paise`. Blocker on overallocation; material on unallocated residual > 5%; blocker on GCP > `min(15% of issue, ₹10 cr)` per Reg. 230(2); no-crash on contradicted issue size (evaluates against each confirmed value). | None. Pure arithmetic. |
+| **Identity format checks** (`app.validate.identity_formats`) | Regex validation of PAN (`AAACS0000A`), CIN (`U01100MH2015PLC000000`), GSTIN, and DIN against their official government formats, wherever those fields are present in issuer/promoter/director/subsidiary facts. | None. Pure regex. |
+| **Promoter lock-in** (`app.validate.promoter_lockin`) | Reg. 236: promoters must hold ≥ 20% of post-issue capital (computed at the price-band floor, the worst-case dilution). Reg. 238: flags when the disclosed lock-in doesn't distinguish the MPC's 3-year tranche from the excess holding's mandatory 2-year/1-year split. | None. Pure arithmetic. |
+| **Pricing / valuation** (`app.validate.pricing`) | Reg. 250: cap price ≤ 120% of floor price; floor/final price ≥ face value. Plus face-value consistency across `share_allotments[]` and the price band. | None. Pure arithmetic. |
+| **RPT cross-check** (`app.validate.rpt`) | Extracts company/LLP/trust-suffixed entity names from the free-text `rpt_summary` and flags any not found among the disclosed promoters, promoter group, group companies, subsidiaries, or KMP. Narrow by design — no person-name matching, to avoid false positives on ordinary prose. | None. Pure regex + set lookup. |
 | **Gap check + role routing** (`app.validate.gaps`) | For each non-stub checklist entry, every `required_fact` key with zero confirmed facts becomes a `Gap` routed to the entry's `responsible_role` (promoter / auditor / banker / system). | None. Pure schema traversal. |
 | **Coverage score + benchmark** (`app.coverage`) | Auditor entries only count toward `out_of_scope`. Non-stub, non-auditor entries with a gap-free `GeneratedSection` count as `covered`. The benchmark reads each `data/reference_drhps/*.sections.yaml` and matches its chapter TOC against checklist entry ids; stale ids downgrade to `not_encoded` — the score can never overstate. | None. Pure counting. |
 | **Eligibility** (`app.eligibility`) | Explicit Reg. 228–230 rules; each failed criterion produces a `ReadinessItem` (current state, fix, indicative timeline, clause reference). | None. Pure rules. |

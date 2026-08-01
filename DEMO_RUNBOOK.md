@@ -50,7 +50,7 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
+| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 285 test functions present as of this merge (234 of them run and pass without a DB — the rest need `test_api.py`/`test_auth_store.py`'s Postgres fixture), run `pytest tests/ -q` locally to confirm |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |

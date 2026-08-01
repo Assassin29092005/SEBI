@@ -57,6 +57,10 @@ BUNDLE_MEMBERS: tuple[str, ...] = (
     "coverage.json",
     "examiner_objections.json",
     "arithmetic_findings.json",
+    "identity_format_findings.json",
+    "promoter_lockin_findings.json",
+    "pricing_findings.json",
+    "rpt_findings.json",
     "generated_sections.json",
     "facts_with_provenance.json",
     "review_state.json",
@@ -83,6 +87,10 @@ def build_bundle(
     coverage: CoverageReport,
     objections: list[Objection],
     arithmetic: list,  # arithmetic-check findings; item type owned by its checker module
+    identity_formats: list,  # item type owned by app.validate.identity_formats
+    promoter_lockin: list,  # item type owned by app.validate.promoter_lockin
+    pricing: list,  # item type owned by app.validate.pricing
+    rpt: list,  # item type owned by app.validate.rpt
     drhp_path: Path,
     abridged_path: Path,
     out_path: Path,
@@ -97,8 +105,10 @@ def build_bundle(
       ``model_dump_json(indent=2)`` of the given models. ``review_state.json``
       carries the per-section states and the banker edit audit trail.
     - ``contradictions.json``, ``examiner_objections.json``,
-      ``arithmetic_findings.json``, ``generated_sections.json`` — list
-      payloads wrapped as ``{"items": [...]}``.
+      ``arithmetic_findings.json``, ``identity_format_findings.json``,
+      ``promoter_lockin_findings.json``, ``pricing_findings.json``,
+      ``rpt_findings.json``, ``generated_sections.json`` — list payloads
+      wrapped as ``{"items": [...]}``.
     - ``facts_with_provenance.json`` — every fact in the store, unconfirmed
       and superseded included (see module docstring for why).
     - ``manifest.json`` — pinned regulation/schema version from the checklist
@@ -123,6 +133,10 @@ def build_bundle(
         "coverage.json": coverage.model_dump_json(indent=2),
         "examiner_objections.json": _items_json(objections),
         "arithmetic_findings.json": _items_json(arithmetic),
+        "identity_format_findings.json": _items_json(identity_formats),
+        "promoter_lockin_findings.json": _items_json(promoter_lockin),
+        "pricing_findings.json": _items_json(pricing),
+        "rpt_findings.json": _items_json(rpt),
         "generated_sections.json": _items_json(sections),
         "facts_with_provenance.json": _items_json(store.all_facts()),
         "review_state.json": review_state.model_dump_json(indent=2),

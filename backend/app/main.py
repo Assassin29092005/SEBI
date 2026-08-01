@@ -88,6 +88,10 @@ from app.validate.contradictions import (
 )
 from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
+from app.validate.identity_formats import IdentityFormatFinding, check_identity_formats
+from app.validate.pricing import PricingFinding, check_pricing
+from app.validate.promoter_lockin import PromoterLockinFinding, check_promoter_lockin
+from app.validate.rpt import RptFinding, check_rpt
 
 logger = logging.getLogger("drhp.main")
 
@@ -623,6 +627,46 @@ async def validate_arithmetic(
     return check_arithmetic(store)
 
 
+@app.get("/api/validate/identity")
+async def validate_identity(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[IdentityFormatFinding]:
+    """PAN/CIN/GSTIN/DIN format checks over confirmed facts (deterministic, no LLM)."""
+    store = await facts_repo.load_fact_store(session)
+    return check_identity_formats(store)
+
+
+@app.get("/api/validate/promoter-lockin")
+async def validate_promoter_lockin(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[PromoterLockinFinding]:
+    """Minimum promoters' contribution + lock-in bifurcation (deterministic, no LLM)."""
+    store = await facts_repo.load_fact_store(session)
+    return check_promoter_lockin(store)
+
+
+@app.get("/api/validate/pricing")
+async def validate_pricing(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[PricingFinding]:
+    """Price-band structural checks + face-value consistency (deterministic, no LLM)."""
+    store = await facts_repo.load_fact_store(session)
+    return check_pricing(store)
+
+
+@app.get("/api/validate/rpt")
+async def validate_rpt(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[RptFinding]:
+    """Related-party cross-check over confirmed facts (deterministic, no LLM)."""
+    store = await facts_repo.load_fact_store(session)
+    return check_rpt(store)
+
+
 @app.get("/api/validate/examiner")
 async def validate_examiner(
     _user: User = Depends(get_current_user),
@@ -808,9 +852,10 @@ async def export_bundle(
     Gated by the same certification lock as ``POST /api/review/export`` —
     the package cannot leave the tool until every blocker-severity section is
     certified (409 with the blocker list until then). Every validation payload
-    (gaps, contradictions, coverage, examiner objections, arithmetic findings)
-    is computed fresh here so the bundle reflects the store as exported, never
-    a stale cache.
+    (gaps, contradictions, coverage, examiner objections, arithmetic findings,
+    identity format findings, promoter lock-in findings, pricing findings,
+    RPT findings) is computed fresh here so the bundle reflects the store as
+    exported, never a stale cache.
     """
     review_state = await review_repo.load_review_state(session)
     allowed, blockers = export_allowed(checklist, review_state)
@@ -832,6 +877,10 @@ async def export_bundle(
         coverage=score(checklist, runtime_cache.get_generated_sections(), store=store),
         objections=await _examiner_objections(store, contradictions, arithmetic),
         arithmetic=arithmetic,
+        identity_formats=check_identity_formats(store),
+        promoter_lockin=check_promoter_lockin(store),
+        pricing=check_pricing(store),
+        rpt=check_rpt(store),
         drhp_path=drhp_path,
         abridged_path=abridged_path,
         out_path=OUT_DIR / BUNDLE_FILENAME,
