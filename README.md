@@ -57,7 +57,7 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   source uploads and the access-log audit trail respectively (gitignored;
   see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 248 backend test functions (needs a running Postgres — see below).
+- `tests/` — 250 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 
@@ -88,6 +88,32 @@ banker account (needs `BANKER_INVITE_CODE` from `.env`) to see the
 certification dashboard. Auditor/banker registration is invite-gated — those
 roles carry certification and role-tagged-upload authority; promoter
 self-registration is always open.
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs on every push/PR: backend tests against a
+real Postgres service container + `ruff check`, and a frontend
+type-check + build. A third job builds both container images
+(`backend/Dockerfile`, `frontend/Dockerfile`) on every push/PR too — a
+Dockerfile regression is a real break even when nobody has Docker running
+locally — and, only on a push to `main` and only once the test/lint jobs
+have passed, pushes them to `ghcr.io/<owner>/<repo>/{backend,frontend}`.
+That's the actual safety guarantee: broken code never becomes a pullable
+image. Actually deploying that image onto real infrastructure — a server, a
+migration step, DNS — is a deliberate stopping point, not an oversight; see
+CLAUDE.md's Known Limitations for why.
+
+Build/run the images locally the same way CI does:
+
+```bash
+docker build -f backend/Dockerfile -t drhp-backend .
+docker build -f frontend/Dockerfile -t drhp-frontend .
+docker run --rm -p 8000:8000 \
+  -e DATABASE_URL=postgresql+asyncpg://drhp:drhp_dev_password@host.docker.internal:5432/drhp_studio \
+  -e JWT_SECRET_KEY=... -e ENCRYPTION_KEY=... \
+  drhp-backend
+docker run --rm -p 8080:80 -e BACKEND_URL=http://host.docker.internal:8000 drhp-frontend
+```
 
 ## Tests + lint
 

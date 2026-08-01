@@ -7,6 +7,18 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# ^ Only meaningful when running from a source checkout (this file at
+# backend/app/config.py, two parents up = repo root). A real (non-editable)
+# `pip install` — e.g. the Docker image, see backend/Dockerfile — puts this
+# file under site-packages instead, where `parents[2]` lands somewhere under
+# the venv/site-packages tree, not the repo. Every *_dir setting below that
+# defaults to a REPO_ROOT-relative path is affected: DATA_DIR/UPLOADS_DIR/
+# AUDIT_DIR (and BACKUP_DIR, once app.backup lands) MUST be set explicitly
+# via environment in any deployment that isn't a plain source checkout —
+# backend/Dockerfile does this. A new REPO_ROOT-relative Path setting added
+# here needs the same treatment, or it'll silently resolve to nonsense (or a
+# PermissionError, if the resolved path happens to be unwritable) the moment
+# someone actually deploys it instead of running from source.
 
 
 class Settings(BaseSettings):

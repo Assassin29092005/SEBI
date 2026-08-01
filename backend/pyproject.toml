@@ -37,6 +37,18 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+# Non-.py data files the package reads at runtime (app.schema.loader.load_checklist()
+# is called at main.py import time, so a wheel missing this crashes on startup, not on
+# first request). "packages.find" above only decides which PYTHON PACKAGES ship; without
+# this, setuptools silently drops non-.py files from a real (non-editable) build — a real
+# install (pip install ./backend) or a Docker image built from this pyproject would start,
+# import cleanly, then fail with SchemaIntegrityError the moment anything touched the
+# checklist. `pip install -e` never surfaces this: an editable install just points back at
+# the source tree, where these files are already sitting on disk regardless of what's
+# declared here.
+[tool.setuptools.package-data]
+app = ["intake/question_copy.yaml", "schema/checklists/*.yaml"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 

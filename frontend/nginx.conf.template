@@ -1,0 +1,27 @@
+# Templated by nginx's own docker-entrypoint envsubst mechanism at container
+# start (see Dockerfile) — ${BACKEND_URL} becomes a real value there, this
+# file on disk keeps the literal placeholder.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA routing: react-router owns everything that isn't a real static
+    # file or an /api/ call — always fall back to index.html so a deep link
+    # (e.g. a reload on /draft) doesn't 404 at the web server.
+    location / {
+        try_files $uri /index.html;
+    }
+
+    # Same relative /api/* path the Vite dev server proxies in development
+    # (see frontend/vite.config.ts) — client.ts's fetch() calls never know
+    # or care whether they're hitting the dev proxy or this one.
+    location /api/ {
+        proxy_pass ${BACKEND_URL}/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

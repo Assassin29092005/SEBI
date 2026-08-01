@@ -1,0 +1,35 @@
+# Applies to both backend/Dockerfile and frontend/Dockerfile builds (both
+# build from context directories under the repo root — see each Dockerfile's
+# header comment for the exact build command). Mirrors .gitignore, plus
+# things that are gitignored-adjacent but still worth excluding explicitly
+# from the build context (tests, docs, CI config — none of it ships in
+# either image).
+.git/
+.github/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+backend/build/
+
+node_modules/
+frontend/dist/
+
+.env
+.env.local
+
+output/
+out/
+data/uploads/
+data/audit/
+data/backups/
+data/session/
+
+tests/
+conftest.py
+*.md
+DEMO_RUNBOOK.md
