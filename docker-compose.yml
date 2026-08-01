@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: drhp_studio
+      POSTGRES_USER: drhp
+      POSTGRES_PASSWORD: drhp_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - drhp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drhp -d drhp_studio"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  drhp_pgdata:

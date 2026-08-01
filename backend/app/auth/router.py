@@ -11,7 +11,9 @@ registration entirely.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import store as auth_store
 from app.auth.dependencies import get_current_user
 from app.auth.models import (
     LOGIN_ROLES,
@@ -22,8 +24,8 @@ from app.auth.models import (
     UserPublic,
 )
 from app.auth.security import create_access_token, hash_password, verify_password
-from app.auth.store import get_user_store
 from app.config import settings
+from app.db import get_session
 from app.schema.models import Role
 
 router = APIRouter()
@@ -46,7 +48,9 @@ def _check_invite(role: Role, invite_code: str | None) -> None:
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(req: RegisterRequest) -> TokenResponse:
+async def register(
+    req: RegisterRequest, session: AsyncSession = Depends(get_session)
+) -> TokenResponse:
     if req.role not in LOGIN_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -54,30 +58,35 @@ async def register(req: RegisterRequest) -> TokenResponse:
         )
     _check_invite(req.role, req.invite_code)
 
-    store = get_user_store()
-    if store.get_by_email(req.email) is not None:
+    if await auth_store.get_by_email(session, req.email) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="an account with this email already exists",
         )
     salt, pw_hash = hash_password(req.password)
-    user = store.create(
-        User(
-            email=req.email,
-            name=req.name,
-            role=req.role,
-            password_hash=pw_hash,
-            password_salt=salt,
+    try:
+        user = await auth_store.create(
+            session,
+            User(
+                email=req.email,
+                name=req.name,
+                role=req.role,
+                password_hash=pw_hash,
+                password_salt=salt,
+            ),
         )
-    )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="an account with this email already exists",
+        ) from exc
     token = create_access_token(user_id=user.user_id, role=user.role.value, email=user.email)
     return TokenResponse(access_token=token, user=UserPublic.from_user(user))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(req: LoginRequest) -> TokenResponse:
-    store = get_user_store()
-    user = store.get_by_email(req.email)
+async def login(req: LoginRequest, session: AsyncSession = Depends(get_session)) -> TokenResponse:
+    user = await auth_store.get_by_email(session, req.email)
     if (
         user is None
         or user.disabled

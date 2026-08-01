@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ *)",
+      "Bash(python -m ruff check backend)",
+      "Bash(docker info)"
+    ]
+  }
+}
