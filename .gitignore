@@ -21,13 +21,9 @@ out/
 *.docx
 !data/demo_company/**/*.docx
 
-# Session persistence snapshot (demo-grade, see backend/app/persistence.py)
-data/session/
-
-# User accounts (password hashes + salts; see backend/app/auth/store.py)
-data/auth/
-
 # Archived original uploads, encrypted at rest (see backend/app/intake/vault.py)
+# Facts, review state, and user accounts live in Postgres now, not on disk —
+# see backend/app/db.py.
 data/uploads/
 
 # OS / editor
