@@ -73,6 +73,7 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
+from app.rate_limit import RateLimiter
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
@@ -243,6 +244,78 @@ async def audit_log_middleware(request: Request, call_next: Any) -> Any:
         logger.exception("audit logging failed for %s %s", request.method, path)
 
     return response
+
+
+_RATE_LIMIT_EXCLUDED_PATHS = {"/api/health"}
+_RATE_LIMIT_AUTH_PATHS = {"/api/auth/login", "/api/auth/register"}
+
+_auth_rate_limiter = RateLimiter(
+    settings.rate_limit_auth_max, settings.rate_limit_auth_window_seconds
+)
+_default_rate_limiter = RateLimiter(
+    settings.rate_limit_default_max, settings.rate_limit_default_window_seconds
+)
+
+
+def _rate_limit_key(request: Request) -> str:
+    """Authenticated user id when the bearer token decodes cleanly, else client IP.
+
+    A cheap in-process token decode only — no DB lookup, so this never slows
+    down the common case (and, unlike ``_resolve_actor``, doesn't need to go
+    through ``dependency_overrides`` at all: it only needs a stable identity
+    key, not a real ``User`` object).
+    """
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("bearer "):
+        try:
+            payload = decode_access_token(header[len("bearer ") :].strip())
+        except InvalidToken:
+            payload = None
+        if payload is not None and payload.get("sub"):
+            return f"user:{payload['sub']}"
+    client = request.client
+    return f"ip:{client.host if client else 'unknown'}"
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next: Any) -> Any:
+    """Abuse protection: reject over-limit requests before any other work runs.
+
+    Registered last (see the ordering note on ``limit_body_size``/
+    ``audit_log_middleware`` above) so it wraps every other middleware and
+    runs first on every request — an abusive client gets a cheap 429 before
+    the body-size check, audit DB lookup, or the route handler itself do any
+    work. Rate-limit rejections are deliberately NOT written to the audit
+    log: the audit log tracks who did what to application data, and a
+    client that never got past this layer never touched any. See
+    :mod:`app.rate_limit` for the limiter itself and its known limitations.
+    """
+    path = request.url.path
+    if path in _RATE_LIMIT_EXCLUDED_PATHS:
+        return await call_next(request)
+
+    if path in _RATE_LIMIT_AUTH_PATHS:
+        client = request.client
+        key = f"ip:{client.host if client else 'unknown'}"
+        limiter = _auth_rate_limiter
+    else:
+        key = _rate_limit_key(request)
+        limiter = _default_rate_limiter
+
+    allowed, retry_after = limiter.check(key)
+    if not allowed:
+        return JSONResponse(
+            {"detail": "rate limit exceeded, try again later"},
+            status_code=429,
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
+    return await call_next(request)
+
+
+def reset_rate_limiters() -> None:
+    """Clear both rate limiters' recorded hits — test-only, see ``RateLimiter.reset``."""
+    _auth_rate_limiter.reset()
+    _default_rate_limiter.reset()
 
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])

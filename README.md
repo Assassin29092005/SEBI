@@ -23,6 +23,10 @@ banker certification → exchange-ready package**. The tool:
 - Full audit log: who viewed, edited, or confirmed what, and when — every
   request is recorded (see `backend/app/audit.py`), including denied
   attempts, reviewable via `GET /api/audit` (banker-only).
+- Rate-limited: every request passes through an in-process sliding-window
+  limiter (see `backend/app/rate_limit.py`) — a strict tier on login/register
+  to blunt credential stuffing, a looser default tier (keyed by account, not
+  just IP) everywhere else.
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,
@@ -57,7 +61,7 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   source uploads and the access-log audit trail respectively (gitignored;
   see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 248 backend test functions (needs a running Postgres — see below).
+- `tests/` — 258 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 

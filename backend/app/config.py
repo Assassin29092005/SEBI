@@ -53,6 +53,21 @@ class Settings(BaseSettings):
     # Content-Length header, e.g. chunked transfer-encoding).
     max_request_body_bytes: int = 20 * 1024 * 1024  # 20 MB — covers a scanned SME filing PDF
 
+    # Rate limiting (see app.rate_limit): in-memory, single-process sliding-
+    # window limiter — abuse protection appropriate once this API is reachable
+    # over a network rather than only run locally for a demo. Two tiers: a
+    # strict one on /api/auth/login + /api/auth/register (blunts credential
+    # stuffing and registration spam), keyed by client IP since there is no
+    # bearer token yet at that point; a looser default for everything else
+    # (except /api/health), keyed by the authenticated user when a valid
+    # bearer token is present, else by client IP. Not built: a shared store
+    # (Redis) for multi-instance deployments — see app.rate_limit's module
+    # docstring for why that matters before horizontally scaling this API.
+    rate_limit_auth_max: int = 10
+    rate_limit_auth_window_seconds: float = 300.0  # 5 minutes
+    rate_limit_default_max: int = 120
+    rate_limit_default_window_seconds: float = 60.0  # 1 minute
+
     # Encryption at rest (see app.crypto): archived original uploads are
     # written through it (facts/review/users now live in Postgres — see
     # app.db). Leaving

@@ -51,6 +51,7 @@ from app.assemble.bundle import BUNDLE_MEMBERS
 from app.audit import reset_audit_log
 from app.config import settings
 from app.db import get_session
+from app.rate_limit import RateLimiter
 from app.review.workflow import SectionState
 from app.schema.models import Severity
 
@@ -99,6 +100,7 @@ async def fresh_app(
     monkeypatch.setattr(settings, "auditor_invite_code", TEST_AUDITOR_INVITE)
     main_module.reset_runtime_cache()
     reset_audit_log()
+    main_module.reset_rate_limiters()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -113,6 +115,7 @@ async def fresh_app(
     main_module.app.dependency_overrides.clear()
     main_module.reset_runtime_cache()
     reset_audit_log()
+    main_module.reset_rate_limiters()
 
 
 @pytest_asyncio.fixture()
@@ -600,6 +603,126 @@ async def test_validate_semantic_offline_empty(fresh_app: AsyncClient) -> None:
     resp = await client.get("/api/validate/semantic")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# --------------------------------------------------------------------------
+# Rate limiting (app.rate_limit, wired in main.rate_limit_middleware)
+# --------------------------------------------------------------------------
+
+
+async def test_rate_limit_exceeded_returns_429_with_retry_after(
+    fresh_app: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_default_rate_limiter", RateLimiter(1, 60.0))
+    ok = await fresh_app.get("/api/schema")
+    assert ok.status_code == 200
+
+    limited = await fresh_app.get("/api/schema")
+    assert limited.status_code == 429
+    assert "Retry-After" in limited.headers
+    assert int(limited.headers["Retry-After"]) > 0
+    assert "rate limit" in limited.json()["detail"]
+
+
+async def test_health_endpoint_is_exempt_from_rate_limiting(
+    fresh_app: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module, "_default_rate_limiter", RateLimiter(1, 60.0))
+    for _ in range(5):
+        resp = await fresh_app.get("/api/health")
+        assert resp.status_code == 200
+
+
+async def test_auth_endpoints_use_a_separate_stricter_limiter(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The auth-tier limiter is independent of the default-tier one, and
+    exhausting it does not affect unrelated (non-auth) endpoints."""
+    monkeypatch.setattr(settings, "uploads_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "audit_dir", tmp_path / "audit")
+    monkeypatch.setattr(main_module, "_auth_rate_limiter", RateLimiter(1, 60.0))
+    main_module.reset_runtime_cache()
+    reset_audit_log()
+
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    main_module.app.dependency_overrides[get_session] = _override_get_session
+    async with AsyncClient(
+        transport=ASGITransport(app=main_module.app), base_url="http://testserver"
+    ) as client:
+        first = await client.post(
+            "/api/auth/register",
+            json={
+                "email": "rl-first@test.example",
+                "name": "Rate Limit Test",
+                "password": TEST_PASSWORD,
+                "role": "promoter",
+            },
+        )
+        assert first.status_code == 200, first.text
+
+        second = await client.post(
+            "/api/auth/register",
+            json={
+                "email": "rl-second@test.example",
+                "name": "Rate Limit Test 2",
+                "password": TEST_PASSWORD,
+                "role": "promoter",
+            },
+        )
+        assert second.status_code == 429
+
+        # A non-auth endpoint on the same client/IP is unaffected — separate bucket.
+        health = await client.get("/api/health")
+        assert health.status_code == 200
+    main_module.app.dependency_overrides.clear()
+    main_module.reset_runtime_cache()
+    reset_audit_log()
+    main_module.reset_rate_limiters()
+
+
+async def test_rate_limit_keys_authenticated_requests_by_user_not_shared_ip(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two different bearer tokens from the same client/IP get independent budgets."""
+    monkeypatch.setattr(settings, "uploads_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "audit_dir", tmp_path / "audit")
+    monkeypatch.setattr(settings, "banker_invite_code", TEST_BANKER_INVITE)
+    monkeypatch.setattr(main_module, "_default_rate_limiter", RateLimiter(1, 60.0))
+    main_module.reset_runtime_cache()
+    reset_audit_log()
+    main_module.reset_rate_limiters()
+
+    async def _override_get_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    main_module.app.dependency_overrides[get_session] = _override_get_session
+    async with AsyncClient(
+        transport=ASGITransport(app=main_module.app), base_url="http://testserver"
+    ) as client:
+        token_a = await _register(client, email="rl-a@test.example", name="A", role="promoter")
+        token_b = await _register(
+            client, email="rl-b@test.example", name="B", role="banker", invite_code=TEST_BANKER_INVITE
+        )
+
+        client.headers["Authorization"] = f"Bearer {token_a}"
+        resp_a = await client.get("/api/schema")
+        assert resp_a.status_code == 200
+
+        # Same client/IP, different user -> independent budget, not yet exhausted.
+        client.headers["Authorization"] = f"Bearer {token_b}"
+        resp_b = await client.get("/api/schema")
+        assert resp_b.status_code == 200
+
+        # user A's budget (limit=1) is now exhausted.
+        client.headers["Authorization"] = f"Bearer {token_a}"
+        resp_a2 = await client.get("/api/schema")
+        assert resp_a2.status_code == 429
+    main_module.app.dependency_overrides.clear()
+    main_module.reset_runtime_cache()
+    reset_audit_log()
+    main_module.reset_rate_limiters()
 
 
 # --------------------------------------------------------------------------

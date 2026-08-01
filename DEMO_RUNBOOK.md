@@ -50,7 +50,7 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
+| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 258 test functions present as of this merge (204 of them run and pass without a DB), run `pytest tests/ -q` locally to confirm |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -236,3 +236,12 @@ Quote these faithfully — never soften them:
   (auditor/banker registration uses a shared invite code, not per-user
   invites) and password reset — appropriate for one issuer's small team, not
   a multi-firm SaaS yet.
+- **"What stops someone hammering the API?"** Every request passes through a
+  sliding-window rate limiter (`app.rate_limit`) — a strict tier on
+  login/register (10 requests/5 min by default, keyed by IP, blunts
+  credential stuffing) and a looser default tier everywhere else (120/min,
+  keyed by account once authenticated so one abusive user can't hide behind
+  a shared office IP). Honest caveat: it's in-process memory, correct for
+  the single-process deployment this app targets, but a real multi-instance
+  deployment behind a load balancer would need a shared store (Redis) —
+  each process would otherwise enforce the limit independently.
