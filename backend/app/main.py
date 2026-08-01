@@ -59,7 +59,7 @@ from app.auth.router import router as auth_router
 from app.auth.security import InvalidToken, decode_access_token
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
-from app.db import get_session, get_sessionmaker
+from app.db import get_session
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
 from app.facts import Fact, FactStore, Provenance
 from app.facts_repo import FactNotFound
@@ -153,11 +153,23 @@ async def _resolve_actor(request: Request) -> tuple[str | None, str, Role | None
         payload = decode_access_token(token)
     except InvalidToken:
         return None, "anonymous", None
-    # Middleware has no FastAPI Depends() injection, so this opens its own
-    # short-lived session rather than sharing the request handler's — the
-    # audit record and the request's own DB work are independent concerns.
-    async with get_sessionmaker()() as session:
+    # Middleware has no FastAPI Depends() injection, so this drives the
+    # get_session generator by hand rather than calling get_sessionmaker()
+    # directly — going through request.app.dependency_overrides means the
+    # test suite's per-test-transaction override applies here too, not just
+    # to route handlers. Calling get_sessionmaker() directly used to bypass
+    # that override on every single request, which meant every HTTP call in
+    # the test suite opened a stray connection on app.db's global,
+    # never-reset production engine — pytest-asyncio hands out a fresh event
+    # loop per test, so that engine's pooled connections went stale across
+    # tests and asyncpg raised "Event loop is closed" trying to close them.
+    session_dependency = request.app.dependency_overrides.get(get_session, get_session)
+    session_gen = session_dependency()
+    session = await anext(session_gen)
+    try:
         user = await auth_store.get_by_id(session, payload.get("sub", ""))
+    finally:
+        await session_gen.aclose()
     if user is None or user.disabled:
         return None, "anonymous", None
     return user.user_id, user.email, user.role
