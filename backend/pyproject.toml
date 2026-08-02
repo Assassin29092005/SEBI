@@ -21,6 +21,7 @@ dependencies = [
     "sqlmodel>=0.0.22",
     "asyncpg>=0.29",
     "alembic>=1.13",
+    "sentry-sdk>=2.0",
 ]
 
 [project.optional-dependencies]

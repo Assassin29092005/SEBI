@@ -103,5 +103,21 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ""
     tesseract_lang: str = "eng"
 
+    # Error tracking (see app.observability): optional Sentry integration.
+    # Blank DSN (default) means init_error_tracking() never calls
+    # sentry_sdk.init() — zero behavior change, same optional-real-
+    # integration pattern as everything else in this file. Get a free DSN at
+    # sentry.io (or self-host) to start capturing unhandled exceptions and
+    # logger.exception()/error() calls.
+    sentry_dsn: str = ""
+    sentry_environment: str = "development"
+    sentry_release: str = ""
+    sentry_traces_sample_rate: float = 0.0
+
+    # LLM cost/usage tracking (see app.llm_usage): every REAL (non-fallback)
+    # call through app.llm.client.grounded_complete is recorded here —
+    # encrypted at rest, same pattern as the audit log (app.audit).
+    llm_usage_dir: Path = REPO_ROOT / "data" / "llm_usage"
+
 
 settings = Settings()

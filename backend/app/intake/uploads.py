@@ -356,6 +356,7 @@ async def _llm_extract(
             user=f"Document: {source_file} — page {page_num}\n\n{page.text}",
             context_fact_ids=[],  # extraction has no fact context yet
             temperature=0.0,
+            feature="extract_facts",
         )
         proposals.extend(
             _parse_llm_proposals(

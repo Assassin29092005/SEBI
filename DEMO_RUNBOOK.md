@@ -50,7 +50,7 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
+| Backend tests passing | 273 passed, 3 skipped, of 276 test functions — run for real against a live Postgres instance in this session, see CLAUDE.md § Commands to reproduce |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -236,3 +236,15 @@ Quote these faithfully — never soften them:
   (auditor/banker registration uses a shared invite code, not per-user
   invites) and password reset — appropriate for one issuer's small team, not
   a multi-firm SaaS yet.
+- **"How would you know if this broke in production, or what it's costing
+  you?"** Three real, verified pieces: optional Sentry error tracking
+  (`app.observability`, zero-config until `SENTRY_DSN` is set — captures
+  unhandled exceptions for real, live-tested in this session), a readiness
+  endpoint that actually checks Postgres (`GET /api/health/ready`, confirmed
+  live by stopping the real database mid-session and watching it correctly
+  return 503, then recover), and per-feature LLM cost/usage tracking
+  (`app.llm_usage`, `GET /api/llm-usage`, banker dashboard) so LLM spend is
+  visible, not a surprise invoice. Honest gap: no live deployment exists to
+  point the uptime workflow or Sentry at yet — that's a real infrastructure
+  decision outside this repo's scope, same as CI/CD publishing images
+  without deploying them.

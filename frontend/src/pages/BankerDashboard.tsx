@@ -7,6 +7,7 @@ import {
   exportPackage,
   getArithmetic,
   getContradictions,
+  getLlmUsage,
   getReviewState,
   getSchema,
   getSections,
@@ -18,6 +19,7 @@ import {
   type ExportResponse,
   type ExtractionProposal,
   type GeneratedSection,
+  type LlmUsageReport,
   type ReviewState,
   type SectionState,
   type Severity,
@@ -40,6 +42,13 @@ function statusFromError(err: unknown): number | null {
 function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+// null means "no priced calls at all" (see app.llm_usage's summary() docstring
+// for why that's kept distinct from a genuine $0) — shown as a dash, not $0.
+function formatUsd(amount: number | null): string {
+  if (amount === null) return "—";
+  return `$${amount.toFixed(4)}`;
 }
 
 // Next legal step in the draft → reviewed → certified pipeline. Returning
@@ -300,6 +309,11 @@ export default function BankerDashboard() {
   const [exportLockMessage, setExportLockMessage] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // LLM cost/usage state (backend/app/llm_usage.py).
+  const [llmUsage, setLlmUsage] = useState<LlmUsageReport | null>(null);
+  const [llmUsageLoading, setLlmUsageLoading] = useState<boolean>(false);
+  const [llmUsageError, setLlmUsageError] = useState<string | null>(null);
+
   // Open validation findings (contradictions + arithmetic). Fetched on mount,
   // strictly non-blocking: if either endpoint fails this stays null and the
   // summary card simply does not render — the certification workflow must
@@ -357,6 +371,22 @@ export default function BankerDashboard() {
       cancelled = true;
     };
   }, []);
+
+  const loadLlmUsage = useCallback(async () => {
+    setLlmUsageLoading(true);
+    setLlmUsageError(null);
+    try {
+      setLlmUsage(await getLlmUsage());
+    } catch (err) {
+      setLlmUsageError(errorMessage(err));
+    } finally {
+      setLlmUsageLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLlmUsage();
+  }, [loadLlmUsage]);
 
 // ----------------------------------------------------------------------
 // Derived: only entries the tool is actually responsible for (non-stub).
@@ -979,6 +1009,95 @@ export default function BankerDashboard() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* --- LLM cost & usage tracking ------------------------------------ */}
+      <div className="rounded border border-slate-200 bg-white p-4">
+        <h2 className="text-lg font-semibold mb-2">LLM cost &amp; usage</h2>
+        <p className="text-sm text-slate-600 max-w-3xl">
+          Every real (non-fallback) call to Gemini/Groq made anywhere in this
+          app is recorded here, broken down by feature. Estimated cost is
+          directional, not a bill — provider pricing changes without notice
+          and a call whose model isn&apos;t in the pinned pricing table shows
+          as unpriced (—) rather than a misleading $0.
+        </p>
+
+        {llmUsageError && (
+          <div className="mt-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+            {llmUsageError}
+          </div>
+        )}
+
+        {llmUsageLoading && llmUsage === null ? (
+          <p className="mt-3 text-sm text-slate-500">Loading…</p>
+        ) : llmUsage ? (
+          <div className="mt-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="rounded bg-slate-50 border border-slate-200 p-3">
+                <div className="text-xs text-slate-500">Calls</div>
+                <div className="text-lg font-semibold text-slate-900">
+                  {llmUsage.summary.total_calls}
+                </div>
+              </div>
+              <div className="rounded bg-slate-50 border border-slate-200 p-3">
+                <div className="text-xs text-slate-500">Input tokens</div>
+                <div className="text-lg font-semibold text-slate-900">
+                  {llmUsage.summary.total_input_tokens.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded bg-slate-50 border border-slate-200 p-3">
+                <div className="text-xs text-slate-500">Output tokens</div>
+                <div className="text-lg font-semibold text-slate-900">
+                  {llmUsage.summary.total_output_tokens.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded bg-slate-50 border border-slate-200 p-3">
+                <div className="text-xs text-slate-500">Est. cost</div>
+                <div className="text-lg font-semibold text-slate-900">
+                  {formatUsd(llmUsage.summary.total_cost_usd)}
+                </div>
+                {llmUsage.summary.calls_with_unknown_pricing > 0 && (
+                  <div className="text-xs text-amber-700 mt-0.5">
+                    {llmUsage.summary.calls_with_unknown_pricing} call
+                    {llmUsage.summary.calls_with_unknown_pricing === 1 ? "" : "s"} unpriced
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {llmUsage.summary.by_feature.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500">
+                    <th className="pb-1 font-medium">Feature</th>
+                    <th className="pb-1 font-medium">Calls</th>
+                    <th className="pb-1 font-medium">Tokens (in / out)</th>
+                    <th className="pb-1 font-medium">Est. cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {llmUsage.summary.by_feature.map((row) => (
+                    <tr key={row.feature} className="border-t border-slate-100">
+                      <td className="py-1 pr-2 font-mono text-xs text-slate-700">
+                        {row.feature}
+                      </td>
+                      <td className="py-1 pr-2 text-slate-700">{row.calls}</td>
+                      <td className="py-1 pr-2 text-slate-700">
+                        {row.input_tokens.toLocaleString()} / {row.output_tokens.toLocaleString()}
+                      </td>
+                      <td className="py-1 text-slate-700">{formatUsd(row.cost_usd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-sm text-slate-500">
+                No LLM calls recorded yet — this app runs fully offline until an
+                API key is configured (see README.md).
+              </p>
+            )}
+          </div>
+        ) : null}
       </div>
     </section>
   );

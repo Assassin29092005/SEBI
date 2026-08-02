@@ -38,6 +38,13 @@ banker certification → exchange-ready package**. The tool:
   banker stays in the loop.
 - Assembles the DRHP and the draft abridged prospectus (Sch. VI Part E per
   Reg. 246(3)) as `.docx` and bundles the full audit trail as a `.zip`.
+- Monitoring built in, not bolted on for the demo: optional Sentry error
+  tracking (`backend/app/observability.py`, off by default, zero behavior
+  change until `SENTRY_DSN` is set), a real DB-checking readiness endpoint
+  (`GET /api/health/ready`) with a scheduled GitHub Actions uptime check,
+  and per-feature LLM cost/usage tracking (`backend/app/llm_usage.py`,
+  `GET /api/llm-usage`, banker-only) so a real deployment isn't flying blind
+  on either errors or API spend.
 
 Benchmarked against three real filed NSE Emerge SME DRHPs: 100% in-scope
 chapter match on every one (auditor-only chapters explicitly out of scope).
@@ -57,7 +64,7 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   source uploads and the access-log audit trail respectively (gitignored;
   see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 248 backend test functions (needs a running Postgres — see below).
+- `tests/` — 276 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 

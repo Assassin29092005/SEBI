@@ -40,6 +40,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Uploa
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import facts_repo, runtime_cache
@@ -73,6 +74,8 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
+from app.llm_usage import LlmUsageEvent, LlmUsageSummary, get_llm_usage_log
+from app.observability import init_error_tracking
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
@@ -90,6 +93,11 @@ from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
 
 logger = logging.getLogger("drhp.main")
+
+# Must run before the FastAPI app is constructed — sentry-sdk auto-
+# instruments FastAPI/Starlette by detecting them installed at init time.
+# No-op when SENTRY_DSN is unset (the default); see app.observability.
+init_error_tracking()
 
 app = FastAPI(title="DRHP Studio", version="0.1.0")
 
@@ -133,7 +141,10 @@ async def limit_body_size(request: Request, call_next: Any) -> Any:
     return await call_next(request)
 
 
-_AUDIT_EXCLUDED_PATHS = {"/api/health"}  # pure liveness-check noise, never security-relevant
+_AUDIT_EXCLUDED_PATHS = {
+    "/api/health",
+    "/api/health/ready",
+}  # pure liveness/readiness-check noise, never security-relevant
 _AUTH_RESPONSE_BODY_PATHS = {"/api/auth/register", "/api/auth/login"}
 
 
@@ -296,7 +307,32 @@ class ExportResponse(BaseModel):
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
+    """Pure liveness: no I/O, always 200 as long as the process is up.
+
+    Deliberately cheap — a container orchestrator's liveness probe (or a
+    naive uptime monitor) should never restart a healthy process just
+    because the database had a momentary blip. See /api/health/ready for the
+    check that actually verifies dependencies.
+    """
     return {"status": "ok", "schema_version": checklist.header.schema_version}
+
+
+@app.get("/api/health/ready")
+async def health_ready(session: AsyncSession = Depends(get_session)) -> Response:
+    """Readiness: verifies the database is actually reachable.
+
+    This is what a real uptime monitor or an orchestrator's readiness probe
+    should point at — a process that's alive but can't reach Postgres can't
+    serve a single real request, and /api/health alone would report it as
+    fine. Public/unauthenticated, same as /api/health: a monitoring service
+    has no bearer token, and this leaks nothing sensitive.
+    """
+    try:
+        await session.execute(text("SELECT 1"))
+    except Exception:  # noqa: BLE001 — any DB failure means "not ready", full stop
+        logger.exception("readiness check: database unreachable")
+        return JSONResponse({"status": "not_ready", "database": "unreachable"}, status_code=503)
+    return JSONResponse({"status": "ready", "database": "ok"})
 
 
 @app.get("/api/schema")
@@ -872,4 +908,33 @@ async def view_audit_log(
         resource_type=resource_type,
         outcome=outcome,
         limit=limit,
+    )
+
+
+# --------------------------------------------------------------------------
+# LLM cost & usage tracking (see app.llm_usage)
+# --------------------------------------------------------------------------
+
+
+class LlmUsageReport(BaseModel):
+    summary: LlmUsageSummary
+    events: list[LlmUsageEvent]
+
+
+@app.get("/api/llm-usage")
+async def view_llm_usage(
+    feature: str | None = Query(default=None, max_length=100),
+    provider: str | None = Query(default=None, max_length=50),
+    limit: int = Query(default=200, ge=1, le=2000),
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> LlmUsageReport:
+    """Cost/usage oversight — banker-only, same rationale as the audit log
+    above. ``summary`` is computed over every recorded call ever made (not
+    just the ``limit``-capped ``events`` list), so the totals stay accurate
+    even when there's more history than the page size returns.
+    """
+    log = get_llm_usage_log()
+    return LlmUsageReport(
+        summary=log.summary(),
+        events=log.list_events(feature=feature, provider=provider, limit=limit),
     )

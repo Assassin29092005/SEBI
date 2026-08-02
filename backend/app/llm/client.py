@@ -3,7 +3,9 @@
 Conventions enforced here, not at call sites:
 - temperature 0 for generation and validation;
 - every call logs the fact IDs present in its prompt context so citations
-  are reconstructible.
+  are reconstructible;
+- every real (non-fallback) call is recorded in app.llm_usage under the
+  caller-supplied ``feature`` tag — cost/usage tracking, not optional.
 
 Offline-first: when no API key is configured (or the API is unreachable),
 ``LLMUnavailable`` is raised so callers can switch to their deterministic
@@ -20,6 +22,7 @@ import httpx
 from pydantic import BaseModel
 
 from app.config import settings
+from app.llm_usage import LlmUsageEvent, estimate_cost_usd, get_llm_usage_log
 
 logger = logging.getLogger("drhp.llm")
 
@@ -43,6 +46,12 @@ class LLMResponse(BaseModel):
     text: str
     provider: str
     model: str
+    # None when the provider's response didn't include usage data (shouldn't
+    # happen for Gemini/Groq in practice, but the field is optional rather
+    # than trusting that forever) — app.llm_usage.estimate_cost_usd treats a
+    # missing count as "unknown cost", never as zero.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class LLMProvider(Protocol):
@@ -116,7 +125,14 @@ class GeminiProvider:
             text = "".join(part.get("text", "") for part in parts)
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMUnavailable(f"Unexpected Gemini response shape: {exc!r}") from exc
-        return LLMResponse(text=text, provider="gemini", model=settings.gemini_model)
+        usage = data.get("usageMetadata") or {}
+        return LLMResponse(
+            text=text,
+            provider="gemini",
+            model=settings.gemini_model,
+            input_tokens=usage.get("promptTokenCount"),
+            output_tokens=usage.get("candidatesTokenCount"),
+        )
 
 
 class GroqProvider:
@@ -141,7 +157,14 @@ class GroqProvider:
             text = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMUnavailable(f"Unexpected Groq response shape: {exc!r}") from exc
-        return LLMResponse(text=text, provider="groq", model=settings.groq_model)
+        usage = data.get("usage") or {}
+        return LLMResponse(
+            text=text,
+            provider="groq",
+            model=settings.groq_model,
+            input_tokens=usage.get("prompt_tokens"),
+            output_tokens=usage.get("completion_tokens"),
+        )
 
 
 def get_provider(http_client: httpx.AsyncClient | None = None) -> LLMProvider:
@@ -167,10 +190,42 @@ async def grounded_complete(
     system: str,
     user: str,
     context_fact_ids: list[str],
+    *,
+    feature: str,
     temperature: float = 0.0,
     http_client: httpx.AsyncClient | None = None,
 ) -> LLMResponse:
-    """The only entry point generation/validation code should use."""
-    logger.info("llm_call fact_ids=%s temperature=%s", context_fact_ids, temperature)
+    """The only entry point generation/validation code should use.
+
+    ``feature`` identifies the caller (e.g. "generate_section",
+    "extract_facts") — every real call is recorded under it in
+    ``app.llm_usage`` for cost/usage tracking. Required, not optional: a
+    caller that doesn't know what to call itself is a caller the usage
+    breakdown can't attribute anything to.
+    """
+    logger.info(
+        "llm_call feature=%s fact_ids=%s temperature=%s", feature, context_fact_ids, temperature
+    )
     provider = get_provider(http_client=http_client)
-    return await provider.complete(system=system, user=user, temperature=temperature)
+    response = await provider.complete(system=system, user=user, temperature=temperature)
+    _record_usage(feature=feature, response=response)
+    return response
+
+
+def _record_usage(*, feature: str, response: LLMResponse) -> None:
+    """Best-effort: a bug in usage tracking must never break the actual LLM call."""
+    try:
+        get_llm_usage_log().record(
+            LlmUsageEvent(
+                feature=feature,
+                provider=response.provider,
+                model=response.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                cost_usd=estimate_cost_usd(
+                    response.provider, response.model, response.input_tokens, response.output_tokens
+                ),
+            )
+        )
+    except Exception:  # noqa: BLE001 — usage tracking must never break the caller
+        logger.exception("LLM usage tracking failed for feature=%s", feature)

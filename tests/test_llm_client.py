@@ -7,10 +7,9 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+import app.llm.client as llm_client
 import httpx
 import pytest
-
-import app.llm.client as llm_client
 from app.config import settings
 from app.llm.client import (
     GeminiProvider,
@@ -24,12 +23,18 @@ from app.llm.client import (
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def _gemini_body(text: str) -> dict[str, Any]:
-    return {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+def _gemini_body(text: str, *, usage: dict[str, int] | None = None) -> dict[str, Any]:
+    body: dict[str, Any] = {"candidates": [{"content": {"parts": [{"text": text}]}}]}
+    if usage is not None:
+        body["usageMetadata"] = usage
+    return body
 
 
-def _groq_body(text: str) -> dict[str, Any]:
-    return {"choices": [{"message": {"role": "assistant", "content": text}}]}
+def _groq_body(text: str, *, usage: dict[str, int] | None = None) -> dict[str, Any]:
+    body: dict[str, Any] = {"choices": [{"message": {"role": "assistant", "content": text}}]}
+    if usage is not None:
+        body["usage"] = usage
+    return body
 
 
 def _mock_client(handler: Handler) -> httpx.AsyncClient:
@@ -193,7 +198,9 @@ def test_grounded_complete_raises_llm_unavailable_without_keys(
 ) -> None:
     _clear_keys(monkeypatch)
     with pytest.raises(LLMUnavailable):
-        asyncio.run(grounded_complete(system="s", user="u", context_fact_ids=["fact.one"]))
+        asyncio.run(
+            grounded_complete(system="s", user="u", context_fact_ids=["fact.one"], feature="test")
+        )
 
 
 def test_get_provider_respects_llm_provider_setting(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -233,9 +240,111 @@ def test_grounded_complete_routes_through_selected_provider(
                 system="s",
                 user="u",
                 context_fact_ids=["issuer.name", "issue.size"],
+                feature="test",
                 http_client=http,
             )
 
     result = asyncio.run(run())
     assert result.text == "grounded output"
     assert result.provider == "groq"
+
+
+# ---------------------------------------------------------- token usage / cost tracking
+
+
+def test_gemini_provider_extracts_token_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_gemini_body(
+                "text", usage={"promptTokenCount": 123, "candidatesTokenCount": 45}
+            ),
+        )
+
+    async def run() -> LLMResponse:
+        async with _mock_client(handler) as http:
+            return await GeminiProvider(http_client=http).complete(
+                system="s", user="u", temperature=0.0
+            )
+
+    result = asyncio.run(run())
+    assert result.input_tokens == 123
+    assert result.output_tokens == 45
+
+
+def test_groq_provider_extracts_token_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json=_groq_body("text", usage={"prompt_tokens": 88, "completion_tokens": 12})
+        )
+
+    async def run() -> LLMResponse:
+        async with _mock_client(handler) as http:
+            return await GroqProvider(http_client=http).complete(
+                system="s", user="u", temperature=0.0
+            )
+
+    result = asyncio.run(run())
+    assert result.input_tokens == 88
+    assert result.output_tokens == 12
+
+
+def test_provider_response_without_usage_field_leaves_tokens_none() -> None:
+    async def run() -> LLMResponse:
+        async with _mock_client(
+            lambda request: httpx.Response(200, json=_gemini_body("text"))
+        ) as http:
+            return await GeminiProvider(http_client=http).complete(
+                system="s", user="u", temperature=0.0
+            )
+
+    result = asyncio.run(run())
+    assert result.input_tokens is None
+    assert result.output_tokens is None
+
+
+def test_grounded_complete_records_a_usage_event_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.llm_usage import get_llm_usage_log
+
+    monkeypatch.setattr(settings, "gemini_api_key", "")
+    monkeypatch.setattr(settings, "groq_api_key", "q-key")
+    monkeypatch.setattr(settings, "llm_provider", "groq")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json=_groq_body("out", usage={"prompt_tokens": 10, "completion_tokens": 5})
+        )
+
+    async def run() -> LLMResponse:
+        async with _mock_client(handler) as http:
+            return await grounded_complete(
+                system="s",
+                user="u",
+                context_fact_ids=[],
+                feature="my_feature",
+                http_client=http,
+            )
+
+    asyncio.run(run())
+
+    events = get_llm_usage_log().list_events()
+    assert len(events) == 1
+    assert events[0].feature == "my_feature"
+    assert events[0].provider == "groq"
+    assert events[0].input_tokens == 10
+    assert events[0].output_tokens == 5
+
+
+def test_grounded_complete_records_nothing_when_provider_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.llm_usage import get_llm_usage_log
+
+    _clear_keys(monkeypatch)
+    with pytest.raises(LLMUnavailable):
+        asyncio.run(
+            grounded_complete(system="s", user="u", context_fact_ids=[], feature="my_feature")
+        )
+    assert get_llm_usage_log().list_events() == []

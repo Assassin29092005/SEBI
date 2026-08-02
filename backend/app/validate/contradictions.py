@@ -214,7 +214,11 @@ async def _refine_uncited_subjects(
     fact_ids = [c.fact_id for c in section.citations]
     try:
         response = await grounded_complete(
-            system=_REFINE_SYSTEM, user=user, context_fact_ids=fact_ids, temperature=0.0
+            system=_REFINE_SYSTEM,
+            user=user,
+            context_fact_ids=fact_ids,
+            temperature=0.0,
+            feature="contradiction_refine",
         )
         mapping = json.loads(response.text)
         if not isinstance(mapping, dict):
@@ -307,7 +311,11 @@ async def semantic_check(sections: list[GeneratedSection]) -> list[Contradiction
     fact_ids = [c.fact_id for s in with_text for c in s.citations]
     try:
         response = await grounded_complete(
-            system=_SEMANTIC_SYSTEM, user=payload, context_fact_ids=fact_ids, temperature=0.0
+            system=_SEMANTIC_SYSTEM,
+            user=payload,
+            context_fact_ids=fact_ids,
+            temperature=0.0,
+            feature="semantic_check",
         )
         items = json.loads(response.text)
         if not isinstance(items, list):

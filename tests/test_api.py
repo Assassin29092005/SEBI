@@ -173,6 +173,14 @@ async def test_health_and_schema(fresh_app: AsyncClient) -> None:
     assert isinstance(schema["entries"], list) and schema["entries"]
 
 
+async def test_health_ready_reports_database_ok(fresh_app: AsyncClient) -> None:
+    """The real point of this endpoint over /api/health: it actually touches
+    the database, which fresh_app's db_session-backed override genuinely is."""
+    resp = await fresh_app.get("/api/health/ready")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ready", "database": "ok"}
+
+
 async def test_eligibility_pass(fresh_app: AsyncClient) -> None:
     payload = {
         "post_issue_paid_up_capital_paise": 15 * 10**9,   # ₹15 crore, well within cap
@@ -923,3 +931,86 @@ async def test_audit_log_excludes_health_check(
     await fresh_app.get("/api/health")
     events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
     assert not any(e["path"] == "/api/health" for e in events)
+
+
+async def test_audit_log_excludes_health_ready_check(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    await fresh_app.get("/api/health/ready")
+    events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
+    assert not any(e["path"] == "/api/health/ready" for e in events)
+
+
+# --------------------------------------------------------------------------
+# Health readiness (app.main.health_ready) and LLM usage tracking (app.llm_usage)
+# --------------------------------------------------------------------------
+
+
+async def test_health_ready_returns_503_when_database_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BrokenSession:
+        async def execute(self, *args: object, **kwargs: object) -> None:
+            raise RuntimeError("simulated database outage")
+
+    async def _override_get_session() -> AsyncIterator[object]:
+        yield _BrokenSession()
+
+    main_module.app.dependency_overrides[get_session] = _override_get_session
+    async with AsyncClient(
+        transport=ASGITransport(app=main_module.app), base_url="http://testserver"
+    ) as client:
+        resp = await client.get("/api/health/ready")
+    main_module.app.dependency_overrides.clear()
+
+    assert resp.status_code == 503
+    assert resp.json() == {"status": "not_ready", "database": "unreachable"}
+
+
+async def test_llm_usage_is_banker_only(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/llm-usage")
+    assert resp.status_code == 403
+
+
+async def test_llm_usage_reports_recorded_events(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    from app.llm_usage import LlmUsageEvent, get_llm_usage_log
+
+    get_llm_usage_log().record(
+        LlmUsageEvent(
+            feature="generate_section",
+            provider="gemini",
+            model="gemini-2.0-flash",
+            input_tokens=100,
+            output_tokens=50,
+            cost_usd=0.01,
+        )
+    )
+
+    resp = await fresh_app.get("/api/llm-usage", headers=banker_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["summary"]["total_calls"] == 1
+    assert body["summary"]["total_cost_usd"] == pytest.approx(0.01)
+    assert len(body["events"]) == 1
+    assert body["events"][0]["feature"] == "generate_section"
+
+
+async def test_llm_usage_filters_by_feature(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    from app.llm_usage import LlmUsageEvent, get_llm_usage_log
+
+    log = get_llm_usage_log()
+    log.record(LlmUsageEvent(feature="generate_section", provider="gemini", model="m"))
+    log.record(LlmUsageEvent(feature="extract_facts", provider="groq", model="m"))
+
+    resp = await fresh_app.get(
+        "/api/llm-usage", headers=banker_headers, params={"feature": "extract_facts"}
+    )
+    body = resp.json()
+    assert len(body["events"]) == 1
+    assert body["events"][0]["feature"] == "extract_facts"
+    # Summary stays over ALL history regardless of the events filter.
+    assert body["summary"]["total_calls"] == 2

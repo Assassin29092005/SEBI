@@ -446,6 +446,7 @@ async def generate_section(entry: ChecklistEntry, store: FactStore) -> Generated
             system=_SYSTEM_PROMPT,
             user=_build_user_prompt(entry, ordered_facts),
             context_fact_ids=[fact.fact_id for fact in ordered_facts],
+            feature="generate_section",
         )
     except (LLMUnavailable, NotImplementedError):
         # Offline-first: no API key (or provider not yet wired) → deterministic path.

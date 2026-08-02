@@ -140,6 +140,8 @@ def _patch_llm(monkeypatch: pytest.MonkeyPatch, text: str) -> None:
         system: str,
         user: str,
         context_fact_ids: list[str],
+        *,
+        feature: str,
         temperature: float = 0.0,
     ) -> LLMResponse:
         assert temperature == 0.0
@@ -223,6 +225,8 @@ def test_llm_unavailable_skips_silently(monkeypatch: pytest.MonkeyPatch) -> None
         system: str,
         user: str,
         context_fact_ids: list[str],
+        *,
+        feature: str,
         temperature: float = 0.0,
     ) -> LLMResponse:
         raise examiner.LLMUnavailable("no API key configured")

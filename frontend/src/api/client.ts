@@ -297,6 +297,47 @@ export interface CoverageReport {
   // serialised in the JSON response. Compute it on the frontend if needed.
 }
 
+// --------------------------------------------------------------------------
+// LLM cost & usage tracking (backend/app/llm_usage.py). Banker-only, same
+// oversight rationale as the audit log.
+// --------------------------------------------------------------------------
+
+export interface LlmUsageEvent {
+  event_id: string;
+  at: string; // ISO 8601
+  feature: string;
+  provider: string;
+  model: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+}
+
+export interface LlmUsageByFeature {
+  feature: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+}
+
+export interface LlmUsageSummary {
+  total_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_usd: number | null;
+  calls_with_unknown_pricing: number;
+  by_feature: LlmUsageByFeature[];
+}
+
+export interface LlmUsageReport {
+  summary: LlmUsageSummary;
+  events: LlmUsageEvent[];
+}
+
+export const getLlmUsage = (): Promise<LlmUsageReport> =>
+  apiGet<LlmUsageReport>("/api/llm-usage");
+
 // Reference-filing benchmark (backend/app/coverage.py, data/reference_drhps/)
 export interface ChapterMapping {
   heading: string;

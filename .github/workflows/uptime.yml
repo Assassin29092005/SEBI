@@ -1,0 +1,64 @@
+name: Uptime
+
+# Scheduled uptime check against a real deployment's readiness endpoint
+# (see backend/app/main.py's health_ready — it verifies the database is
+# actually reachable, not just that the process is alive).
+#
+# There is no deployment target checked into this repo (see CLAUDE.md's
+# Known Limitations for why CI/CD stops at "build and publish an image,"
+# not "run it somewhere") — this workflow exists and is ready to use, but
+# does nothing until a real URL is configured. Set a repository variable
+# named DEPLOYED_URL (Settings -> Secrets and variables -> Actions ->
+# Variables) to the deployment's base URL, e.g. https://drhp.example.com —
+# no protocol trailing slash. Until then, every scheduled run exits 0
+# having deliberately skipped the check, rather than being permanently red
+# for a target that was never configured.
+#
+# On a real failure, GitHub's own notification for a failing scheduled
+# workflow (email to whoever has workflow notifications enabled, visible as
+# a red run in the Actions tab) IS the alert — no external paid service
+# required. Wiring that into Slack/PagerDuty/etc. is a small additional
+# step (a webhook call in the "Report failure" step below) left
+# unconfigured here since it needs a webhook URL this repo doesn't have.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Override DEPLOYED_URL for a manual test run"
+        required: false
+        type: string
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve target URL
+        id: target
+        env:
+          CONFIGURED_URL: ${{ vars.DEPLOYED_URL }}
+          MANUAL_URL: ${{ inputs.url }}
+        run: |
+          url="${MANUAL_URL:-$CONFIGURED_URL}"
+          if [ -z "$url" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No DEPLOYED_URL repository variable set and no manual override given — skipping (see this workflow's header comment)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "url=$url" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check /api/health/ready
+        if: steps.target.outputs.skip == 'false'
+        run: |
+          url="${{ steps.target.outputs.url }}/api/health/ready"
+          echo "Checking $url"
+          status=$(curl -s -o /tmp/body.json -w "%{http_code}" --max-time 10 "$url" || echo "000")
+          echo "HTTP $status"
+          cat /tmp/body.json 2>/dev/null || true
+          if [ "$status" != "200" ]; then
+            echo "::error::Readiness check failed with HTTP $status"
+            exit 1
+          fi

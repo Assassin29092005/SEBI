@@ -369,6 +369,7 @@ async def _llm_pass(
             user=user,
             context_fact_ids=context_fact_ids,
             temperature=0.0,
+            feature="examiner",
         )
     except _LLM_SKIP_ERRORS:
         logger.warning("examiner: LLM unavailable; deterministic objections only")

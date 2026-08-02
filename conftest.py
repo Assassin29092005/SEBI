@@ -50,6 +50,25 @@ def _no_live_llm(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(settings, "groq_api_key", "")
 
 
+@pytest.fixture(autouse=True)
+def _isolate_llm_usage_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Redirect app.llm_usage's storage dir and reset its singleton for every test.
+
+    Broader scope than the audit_dir/uploads_dir redirects that only live in
+    tests/test_api.py's fresh_app fixture: any test anywhere that mocks a
+    successful LLM response triggers a real write via
+    app.llm.client.grounded_complete's usage-tracking call, so without this
+    it would land in a developer's live data/llm_usage/ directory. The
+    module-level log singleton in app.llm_usage would also leak recorded
+    events between tests that never explicitly reset it.
+    """
+    from app.config import settings
+    from app.llm_usage import reset_llm_usage_log
+
+    monkeypatch.setattr(settings, "llm_usage_dir", tmp_path / "llm_usage")
+    reset_llm_usage_log()
+
+
 # NullPool: pytest-asyncio gives each test function its own event loop by
 # default, but asyncpg connections are bound to the loop they were opened
 # on — a pooled connection reused across tests (i.e. across loops) raises
