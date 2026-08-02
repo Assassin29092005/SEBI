@@ -15,6 +15,9 @@ dependencies = [
     "pypdf>=4.0",
     "pyjwt>=2.8",
     "cryptography>=42",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0",
+    "pymupdf>=1.24",
     "sqlmodel>=0.0.22",
     "asyncpg>=0.29",
     "alembic>=1.13",
@@ -50,4 +53,4 @@ ignore = ["ANN401"]
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's DI system evaluates these per-request, not once at def time like a
 # real mutable default — the B008 warning is a false positive for this pattern.
-extend-immutable-calls = ["fastapi.Depends", "app.auth.dependencies.require_roles"]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "app.auth.dependencies.require_roles"]

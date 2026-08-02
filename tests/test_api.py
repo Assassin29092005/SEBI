@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import main as main_module
 from app.assemble.bundle import BUNDLE_MEMBERS
+from app.audit import reset_audit_log
 from app.config import settings
 from app.db import get_session
 from app.review.workflow import SectionState
@@ -86,15 +87,18 @@ async def fresh_app(
 
     ``db_session`` (root ``conftest.py``) is one rolled-back-at-the-end DB
     transaction — every fact/review/account mutation a test makes disappears
-    automatically, no explicit reset needed. ``uploads_dir`` is still
-    redirected into ``tmp_path``: the archived-upload vault is a real
-    filesystem directory unaffected by the DB rollback, so without the
-    redirect the suite would write into a developer's live ``data/uploads/``.
+    automatically, no explicit reset needed. ``uploads_dir``/``audit_dir``
+    are still redirected into ``tmp_path``: the archived-upload vault and
+    the audit log are real filesystem directories unaffected by the DB
+    rollback, so without the redirect the suite would write into a
+    developer's live ``data/uploads/``/``data/audit/``.
     """
     monkeypatch.setattr(settings, "uploads_dir", tmp_path / "uploads")
+    monkeypatch.setattr(settings, "audit_dir", tmp_path / "audit")
     monkeypatch.setattr(settings, "banker_invite_code", TEST_BANKER_INVITE)
     monkeypatch.setattr(settings, "auditor_invite_code", TEST_AUDITOR_INVITE)
     main_module.reset_runtime_cache()
+    reset_audit_log()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -108,6 +112,7 @@ async def fresh_app(
         yield client
     main_module.app.dependency_overrides.clear()
     main_module.reset_runtime_cache()
+    reset_audit_log()
 
 
 @pytest_asyncio.fixture()
@@ -281,6 +286,78 @@ async def test_confirm_and_correct_are_scoped_to_the_supplying_role(
         f"/api/facts/{banker_fact['fact_id']}/correct", json=correction, headers=banker_headers
     )
     assert banker_corrects_own_fact.status_code == 200, banker_corrects_own_fact.text
+
+
+async def test_banker_can_correct_a_promoter_supplied_fact_for_due_diligence(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    """The deliberate widening this feature adds: a banker may correct ANY
+    fact during due-diligence review, not just their own uploads — the
+    promoter/auditor restriction is otherwise unchanged (see the test right
+    below this one). This is what makes "banker-correction feedback loop" a
+    real signal rather than one scoped to a banker's own rarely-corrected
+    uploads."""
+    promoter_fact_id = await _seed_fact(
+        fresh_app,
+        key="issuer_identity",
+        value="Sunrise Agrotch Ltd",  # deliberate typo an extraction might produce
+        detail="document:prospectus.pdf p.1",
+        confirmed=True,
+    )
+
+    # Confirmation is UNCHANGED: still 403, a banker can't vouch for a value
+    # they didn't supply.
+    banker_confirms = await fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/confirm", headers=banker_headers
+    )
+    assert banker_confirms.status_code == 403
+
+    # Correction is the new, deliberately-widened case.
+    correction = {
+        "value": "Sunrise Agrotech Ltd",
+        "provenance": {"kind": "document", "detail": "banker due-diligence review, p.1"},
+    }
+    resp = await fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/correct", json=correction, headers=banker_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["value"] == "Sunrise Agrotech Ltd"
+    assert body["provenance"]["supersedes"] == promoter_fact_id
+    # supplied_by is preserved from the original fact (still "promoter" —
+    # who vouches for the value is unchanged); corrected_by_role records who
+    # actually performed THIS correction.
+    assert body["supplied_by"] == "promoter"
+    assert body["corrected_by_role"] == "banker"
+
+
+async def test_auditor_still_cannot_correct_a_promoter_supplied_fact(
+    fresh_app: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The widening is BANKER-only — confirms auditor correction rights are
+    unchanged, not accidentally broadened alongside banker's."""
+    monkeypatch.setattr(settings, "auditor_invite_code", TEST_AUDITOR_INVITE)
+    auditor_token = await _register(
+        fresh_app,
+        email="auditor@test.example",
+        name="Test Auditor",
+        role="auditor",
+        invite_code=TEST_AUDITOR_INVITE,
+    )
+    promoter_fact_id = await _seed_fact(
+        fresh_app, key="issuer_identity", value="Sunrise Agrotech Ltd",
+        detail="wizard:issuer_identity", confirmed=True,
+    )
+    correction = {
+        "value": "Sunrise Agrotech Limited",
+        "provenance": {"kind": "wizard", "detail": "auditor tries to fix"},
+    }
+    resp = await fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/correct",
+        json=correction,
+        headers={"Authorization": f"Bearer {auditor_token}"},
+    )
+    assert resp.status_code == 403
 
 
 async def test_uploads_extract_txt_payload(fresh_app: AsyncClient) -> None:
@@ -804,3 +881,117 @@ async def test_register_rejects_overlong_password(fresh_app: AsyncClient) -> Non
         },
     )
     assert resp.status_code == 422
+
+
+# --------------------------------------------------------------------------
+# Audit log: who accessed or changed what, and when
+# --------------------------------------------------------------------------
+
+
+async def test_audit_log_is_banker_only(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/audit")
+    assert resp.status_code == 403
+
+
+async def test_audit_log_records_promoter_actions_with_correct_actor(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    fact_id = await _seed_fact(
+        fresh_app, key="issuer_identity", value="Sunrise Agrotech Ltd", detail="wizard:issuer_identity"
+    )
+
+    events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
+    actions = {(e["action"], e["actor_email"]) for e in events}
+    assert ("add_fact", "promoter@test.example") in actions
+    assert ("confirm_fact", "promoter@test.example") in actions
+
+    confirm_events = [e for e in events if e["action"] == "confirm_fact"]
+    assert any(e["resource_id"] == fact_id for e in confirm_events)
+    assert all(e["outcome"] == "success" for e in confirm_events)
+
+
+async def test_audit_log_records_access_denials(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    entry_id = _blocker_entry_ids()[0]
+    denied = await fresh_app.post(f"/api/review/{entry_id}/advance", json={"to": "reviewed"})
+    assert denied.status_code == 403
+
+    events = (
+        await fresh_app.get("/api/audit", headers=banker_headers, params={"outcome": "denied"})
+    ).json()
+    assert any(
+        e["action"] == "advance_review" and e["actor_email"] == "promoter@test.example"
+        for e in events
+    )
+
+
+async def test_audit_log_records_login_success_and_failure(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    ok = await fresh_app.post(
+        "/api/auth/login", json={"email": "promoter@test.example", "password": TEST_PASSWORD}
+    )
+    assert ok.status_code == 200
+
+    bad = await fresh_app.post(
+        "/api/auth/login",
+        json={"email": "promoter@test.example", "password": "definitely-wrong"},
+    )
+    assert bad.status_code == 401
+
+    events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
+    logins = [e for e in events if e["action"] == "login"]
+    assert any(
+        e["outcome"] == "success" and e["actor_email"] == "promoter@test.example" for e in logins
+    )
+    assert any(
+        e["outcome"] == "denied" and e["actor_email"] == "promoter@test.example" for e in logins
+    )
+
+
+async def test_audit_log_records_registration(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
+    registered_emails = {e["actor_email"] for e in events if e["action"] == "register"}
+    # fresh_app registered the promoter, banker_headers registered the banker.
+    assert "promoter@test.example" in registered_emails
+    assert "banker@test.example" in registered_emails
+
+
+async def test_audit_log_records_document_download(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    body = b"Issue Size: Rs 14.00 crore\n"
+    await fresh_app.post(
+        "/api/uploads/extract", files={"file": ("prospectus.txt", body, "text/plain")}
+    )
+    doc_id = (await fresh_app.get("/api/uploads")).json()[0]["document_id"]
+    await fresh_app.get(f"/api/uploads/{doc_id}")
+
+    events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
+    downloads = [e for e in events if e["action"] == "download_document"]
+    assert any(e["resource_id"] == doc_id and e["outcome"] == "success" for e in downloads)
+
+
+async def test_audit_log_filters_by_actor_email_via_query_param(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    await fresh_app.get("/api/facts")  # a promoter-attributed action to filter for
+    only_promoter = (
+        await fresh_app.get(
+            "/api/audit", headers=banker_headers, params={"actor_email": "promoter@test.example"}
+        )
+    ).json()
+    assert only_promoter
+    assert all(e["actor_email"] == "promoter@test.example" for e in only_promoter)
+
+
+async def test_audit_log_excludes_health_check(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    await fresh_app.get("/api/health")
+    await fresh_app.get("/api/health")
+    events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
+    assert not any(e["path"] == "/api/health" for e in events)

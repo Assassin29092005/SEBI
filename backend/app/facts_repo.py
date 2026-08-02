@@ -15,6 +15,7 @@ from sqlmodel import select
 
 from app.db_models import FactRow
 from app.facts import Fact, FactStore, Provenance
+from app.schema.models import Role
 
 
 class FactNotFound(Exception):
@@ -35,6 +36,7 @@ def _to_fact(row: FactRow) -> Fact:
         confidence=row.confidence,
         confirmed=row.confirmed,
         supplied_by=row.supplied_by,
+        corrected_by_role=Role(row.corrected_by_role) if row.corrected_by_role else None,
         created_at=row.created_at,
     )
 
@@ -51,6 +53,7 @@ def _to_row(fact: Fact) -> FactRow:
         confidence=fact.confidence,
         confirmed=fact.confirmed,
         supplied_by=fact.supplied_by.value,
+        corrected_by_role=fact.corrected_by_role.value if fact.corrected_by_role else None,
         created_at=fact.created_at,
     )
 
@@ -72,7 +75,12 @@ async def confirm(session: AsyncSession, fact_id: str) -> Fact:
 
 
 async def correct(
-    session: AsyncSession, fact_id: str, new_value: object, provenance: Provenance
+    session: AsyncSession,
+    fact_id: str,
+    new_value: object,
+    provenance: Provenance,
+    *,
+    corrected_by_role: Role | None = None,
 ) -> Fact:
     """Corrections never mutate: a new version supersedes the old one."""
     old = await session.get(FactRow, fact_id)
@@ -83,6 +91,7 @@ async def correct(
         value=new_value,
         provenance=provenance.model_copy(update={"supersedes": fact_id}),
         supplied_by=old.supplied_by,
+        corrected_by_role=corrected_by_role,
     )
     return await add(session, replacement)
 

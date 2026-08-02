@@ -20,6 +20,15 @@ banker certification → exchange-ready package**. The tool:
   `backend/app/auth/`) — a promoter account cannot certify a section by
   editing local state, because the server checks the token's role, not what
   the frontend claims.
+- Full audit log: who viewed, edited, or confirmed what, and when — every
+  request is recorded (see `backend/app/audit.py`), including denied
+  attempts, reviewable via `GET /api/audit` (banker-only).
+- Banker-correction feedback loop: a banker may correct any extracted fact
+  during due-diligence review, not just their own uploads — every correction
+  records who performed it, and `GET /api/extraction-reliability`
+  (banker-only) aggregates those corrections into a reliability signal by
+  source and confidence, isolating how often a banker's review specifically
+  caught someone else's extraction error (see `backend/app/extraction_reliability.py`).
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,
@@ -50,10 +59,11 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   chapter YAMLs for the benchmark.
 - `data/demo_company/` — synthetic issuer *Sunrise Agrotech Ltd* with a
   deliberately planted `issue_size_paise` contradiction for the live demo.
-- `data/uploads/` — encrypted-at-rest archive of original source uploads
-  (gitignored; see `app.crypto`, `app.intake.vault`). Facts, review state,
+- `data/uploads/`, `data/audit/` — encrypted-at-rest archives of original
+  source uploads and the access-log audit trail respectively (gitignored;
+  see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 189 passing backend tests (needs a running Postgres — see below).
+- `tests/` — 248 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 
@@ -88,7 +98,7 @@ self-registration is always open.
 ## Tests + lint
 
 ```bash
-python -m pytest tests/ -q                             # 200 passed, 1 skipped
+python -m pytest tests/ -q                             # needs Postgres running — see "Run it" above
 python -m pytest tests/test_facts.py -q                # one file
 python -m pytest tests/test_facts.py::test_confirmation_makes_fact_available
 python -m ruff check backend                           # lint (E,F,I,UP,B,ANN)
@@ -118,6 +128,7 @@ deterministic path.
 | Feature | Deterministic path (runs always) | LLM path (optional) |
 |---|---|---|
 | **Upload extraction** (`app.intake.uploads`) | Label-scan: line-by-line `Label: value` match against the checklist's fact ontology (`label_for_key` strips `_paise`/`[]`, Title-Cases). Monetary values parsed via `parse_inr_to_paise` (handles `₹14.00 crore`, `Rs. 12,50,00,000`, `₹85 lakh`) — deterministic integer arithmetic, LLM never trusted for money. | Prompts Gemini/Groq to return `(key, value, page, snippet, confidence)` JSON over prose passages. Snippets must be verifiable substrings of the source text; unknown keys dropped. On duplicate `(key, page)`, LLM proposal wins the merge. |
+| **OCR for scanned/photographed pages** (`app.intake.ocr`) | If Tesseract is installed (a system binary — see `.env.example`), any PDF page whose native text layer is too thin to be real content, or a standalone image upload (`.png`/`.jpg`/`.tiff`/...), is rendered/opened and OCR'd. Facts sourced this way carry a lower confidence (`_OCR_CONFIDENCE = 0.6`, under the examiner's 0.7 low-confidence threshold — automatically flagged for review). | None. Pure image processing (PyMuPDF + Tesseract), no LLM involved. |
 | **Section generation** (`app.generate.sections`) | Renders one deterministic sentence per confirmed fact: `"<Human key>: <formatted value> (source: <provenance detail>)."` Every rendered sentence gets an exact-offset `Citation`. Missing facts render as `[REQUIRES INPUT: <key> — <role> can provide this]`. | LLM writes disclosure prose with `[F:<fact_id>]` markers extracted into citations. **Hallucination guard:** every digit sequence in the LLM output must be a substring or displayable form of some provided fact value; on any violation (or zero citations) the LLM text is discarded and the deterministic renderer wins. |
 | **Contradiction check** (`app.validate.contradictions`) | For each citation, resolve the fact and emit a `Claim` (subject = fact key, value = str). Regex-scan uncited monetary expressions in the section text. `cross_check` normalises Indian monetary surface forms to paise (`₹12.5 crore` → `125000000000`) and groups by subject; multi-value groups are `Contradiction`s. | Optional refinement pass; skipped silently on `LLMUnavailable`. |
 | **Boilerplate detector** (`app.validate.boilerplate`) | 15-phrase generic-filler list (`"world-class"`, `"best-in-class"`, `"cutting-edge"`, …) + 8-gram overlap against every `*.txt` in `data/reference_drhps/`. Marker-aware (skips `[REQUIRES INPUT]` spans). | None. Pure text analysis. |
@@ -128,8 +139,8 @@ deterministic path.
 | **Eligibility** (`app.eligibility`) | Explicit Reg. 228–230 rules; each failed criterion produces a `ReadinessItem` (current state, fix, indicative timeline, clause reference). | None. Pure rules. |
 | **Document assembly** (`app.assemble.docx_builder`) | `python-docx` layout. Cover page shows both issue-size values with a red `CONTRADICTION DETECTED` line when confirmed sources disagree. Merchant-banker disclaimer + `DRAFT — NOT FOR FILING` notice. `[REQUIRES INPUT]` runs bold red. Superscript citation markers + per-entry `Sources` list. | None. Pure templating. |
 | **Bundle export** (`app.assemble.bundle`) | `zipfile.ZIP_DEFLATED` package: both `.docx` + JSON dumps of every validator + full fact-provenance ledger + review audit trail + manifest with `regulation`, `amended_through`, `schema_version`, `reviewed_by_human`. Gated by the certification lock. | None. Pure packaging. |
-| **Litigation lookup** (`app.intake.litigation`) | Loads `data/demo_company/litigation_records.json` for entities containing `"sunrise agrotech"` behind a `LitigationConnector` Protocol. Missing file / bad JSON returns `[]` with a warning log — never crashes. | None. Real integrations plug in behind the same Protocol seam. |
-| **Persistence** (`app.db`, `app.facts_repo`, `app.review.repo`, `app.auth.store`) | Facts, review state, and user accounts are written directly to Postgres on every mutating endpoint — durability comes from Postgres's own write-ahead log, not application code. A backend restart or crash loses nothing; only the process-local generated-sections cache (`app.runtime_cache`) needs a fresh `POST /api/generate`. | None. SQLModel + `asyncpg`, no LLM involvement. |
+| **Litigation lookup** (`app.intake.litigation`) | `MockLitigationConnector` loads `data/demo_company/litigation_records.json` for entities containing `"sunrise agrotech"`. Missing file / bad JSON returns `[]` with a warning log — never crashes. | `IndianKanoonConnector` — a real, working integration against api.indiankanoon.org (published Supreme Court/High Court/tribunal judgments; verified against the API's own reference client and against the live server). `FallbackLitigationConnector` tries it when `LITIGATION_PROVIDER=indiankanoon` + a token are configured, and falls back to the mock on any failure — same pattern as the LLM provider. It indexes decided matters only; there is no free public API over India's live pending-case docket (eCourts/NJDG has none). |
+| **Persistence** (`app.db`, `app.facts_repo`, `app.review.repo`, `app.auth.store`) | Facts, review state, and user accounts are written directly to Postgres on every mutating endpoint — durability comes from Postgres's own write-ahead log, not application code. A backend restart or crash loses nothing; only the process-local generated-sections cache (`app.runtime_cache`) needs a fresh `POST /api/generate`. The audit log (`app.audit`) is the one exception, still a flat encrypted file — see Known Limitations in CLAUDE.md. | None. SQLModel + `asyncpg`, no LLM involvement. |
 | **Wizard question copy** (`app.intake.wizard`) | Reads `question_copy.yaml`; per key returns `{prompt, help, input_hint}` in EN or Hindi. Fallback humanises the raw key when the copy map has no entry — never raises. | None. Pure YAML. |
 | **Schema, review workflow, fact store** | Pydantic + integer paise math. No external calls. | None. |
 

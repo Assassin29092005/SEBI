@@ -28,6 +28,7 @@ data is reset by the test suite's own transaction-rollback fixture.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -44,13 +45,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import facts_repo, runtime_cache
 from app.assemble.bundle import build_bundle
 from app.assemble.docx_builder import assemble
+from app.audit import (
+    AuditEvent,
+    Outcome,
+    classify_request,
+    get_audit_log,
+    outcome_for_status,
+)
+from app.auth import store as auth_store
 from app.auth.dependencies import get_current_user, require_roles
 from app.auth.models import User
 from app.auth.router import router as auth_router
+from app.auth.security import InvalidToken, decode_access_token
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.db import get_session
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
+from app.extraction_reliability import ExtractionReliabilityReport, compute_reliability
 from app.facts import Fact, FactStore, Provenance
 from app.facts_repo import FactNotFound
 from app.generate.sections import GeneratedSection, generate_all
@@ -121,6 +132,118 @@ async def limit_body_size(request: Request, call_next: Any) -> Any:
                 status_code=413,
             )
     return await call_next(request)
+
+
+_AUDIT_EXCLUDED_PATHS = {"/api/health"}  # pure liveness-check noise, never security-relevant
+_AUTH_RESPONSE_BODY_PATHS = {"/api/auth/register", "/api/auth/login"}
+
+
+async def _resolve_actor(request: Request) -> tuple[str | None, str, Role | None]:
+    """Best-effort actor identification from the Authorization header.
+
+    Returns ``(user_id, email, role)``; email defaults to ``"anonymous"`` and
+    the other two to ``None`` when there's no valid, resolvable token — which
+    is expected for public endpoints and for requests that never
+    authenticated at all (not an error condition to raise on).
+    """
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None, "anonymous", None
+    token = header[len("bearer ") :].strip()
+    try:
+        payload = decode_access_token(token)
+    except InvalidToken:
+        return None, "anonymous", None
+    # Middleware has no FastAPI Depends() injection, so this drives the
+    # get_session generator by hand rather than calling get_sessionmaker()
+    # directly — going through request.app.dependency_overrides means the
+    # test suite's per-test-transaction override applies here too, not just
+    # to route handlers. Calling get_sessionmaker() directly used to bypass
+    # that override on every single request, which meant every HTTP call in
+    # the test suite opened a stray connection on app.db's global,
+    # never-reset production engine — pytest-asyncio hands out a fresh event
+    # loop per test, so that engine's pooled connections went stale across
+    # tests and asyncpg raised "Event loop is closed" trying to close them.
+    session_dependency = request.app.dependency_overrides.get(get_session, get_session)
+    session_gen = session_dependency()
+    session = await anext(session_gen)
+    try:
+        user = await auth_store.get_by_id(session, payload.get("sub", ""))
+    finally:
+        await session_gen.aclose()
+    if user is None or user.disabled:
+        return None, "anonymous", None
+    return user.user_id, user.email, user.role
+
+
+@app.middleware("http")
+async def audit_log_middleware(request: Request, call_next: Any) -> Any:
+    """Record who accessed or changed what, and when — see :mod:`app.audit`.
+
+    Registered after ``limit_body_size`` so it wraps that layer too (a 413
+    rejection is itself worth an audit record). Every step here is
+    defensive: a bug in audit logging must never take down the actual
+    request it's observing.
+    """
+    path = request.url.path
+    if path in _AUDIT_EXCLUDED_PATHS:
+        return await call_next(request)
+
+    user_id, actor_email, actor_role = await _resolve_actor(request)
+
+    # Login has no token yet — peek the submitted email so a *failed* login
+    # attempt is still attributable. Reading the body here is safe: Starlette
+    # caches it, so the route handler's own body parsing downstream still
+    # works off the same cached bytes.
+    attempted_login_email: str | None = None
+    if path == "/api/auth/login" and request.method == "POST":
+        try:
+            attempted_login_email = json.loads(await request.body()).get("email")
+        except Exception:  # noqa: BLE001 — best-effort only, never blocks the request
+            attempted_login_email = None
+
+    response = await call_next(request)
+
+    # Login/register succeed with no prior token — the actor IS the account
+    # that request just authenticated/created. Buffer + replay the response
+    # body so we can read it without breaking the client's copy.
+    if path in _AUTH_RESPONSE_BODY_PATHS and response.status_code == 200:
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        response = Response(
+            content=body,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+        )
+        try:
+            user_payload = json.loads(body)["user"]
+            actor_email = user_payload["email"]
+            actor_role = user_payload["role"]
+        except Exception:  # noqa: BLE001 — malformed body is not this middleware's problem
+            pass
+    elif path == "/api/auth/login" and attempted_login_email:
+        actor_email = attempted_login_email
+
+    try:
+        action, resource_type, resource_id = classify_request(request.method, path)
+        get_audit_log().record(
+            AuditEvent(
+                actor_user_id=user_id,
+                actor_email=actor_email,
+                actor_role=actor_role,
+                method=request.method,
+                path=path,
+                status_code=response.status_code,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome=outcome_for_status(response.status_code),
+            )
+        )
+    except Exception:  # noqa: BLE001 — audit logging must never break the real request
+        logger.exception("audit logging failed for %s %s", request.method, path)
+
+    return response
 
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
@@ -237,30 +360,62 @@ async def add_fact(
     return await facts_repo.add(session, fact.model_copy(update={"supplied_by": current_user.role}))
 
 
+async def _get_fact_or_404(session: AsyncSession, fact_id: str) -> Fact:
+    try:
+        return await facts_repo.get(session, fact_id)
+    except FactNotFound as exc:
+        raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
+
+
 async def _require_own_fact(session: AsyncSession, fact_id: str, current_user: User) -> Fact:
     """Look up ``fact_id``, 404 if missing, 403 unless the caller supplied it.
 
-    Confirmation and correction are scoped to whoever supplied the fact, not
-    to promoters generically: a promoter confirms promoter-sourced facts, a
-    banker confirms banker-sourced ones (e.g. their own due-diligence
-    certificate upload), an auditor confirms auditor-sourced ones. The point
-    of requiring confirmation is that the supplying party vouches for the
-    extracted value — so it must be that same party who can confirm it, not
-    a different role rubber-stamping someone else's submission.
+    Used by CONFIRMATION only (see ``confirm_fact``) — confirming a fact is
+    the supplying party vouching for it, so it must be that same party, not
+    a different role rubber-stamping someone else's submission. Correction
+    has a broader rule; see ``_require_can_correct_fact``.
     """
-    try:
-        fact = await facts_repo.get(session, fact_id)
-    except FactNotFound as exc:
-        raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
+    fact = await _get_fact_or_404(session, fact_id)
     if fact.supplied_by != current_user.role:
         raise HTTPException(
             status_code=403,
             detail=(
-                f"only the {fact.supplied_by.value} who supplied this fact may confirm or "
-                f"correct it (you are {current_user.role.value})"
+                f"only the {fact.supplied_by.value} who supplied this fact may confirm it "
+                f"(you are {current_user.role.value})"
             ),
         )
     return fact
+
+
+async def _require_can_correct_fact(
+    session: AsyncSession, fact_id: str, current_user: User
+) -> Fact:
+    """Look up ``fact_id``, 404 if missing, 403 unless the caller may correct it.
+
+    The supplying party may always correct their own fact (same rule as
+    confirmation). A BANKER may additionally correct ANY fact regardless of
+    who supplied it — this is the due-diligence review authority the
+    problem statement requires the merchant banker to hold: catching a
+    promoter's misextracted figure during due diligence is exactly what
+    banker review is for, and a banker restricted to only their own
+    due-diligence-certificate uploads couldn't do that job at all. This is
+    strictly an ADDITIVE widening for BANKER only — promoter and auditor
+    correction rights are unchanged, confirmation is untouched for every
+    role, and every correction (whoever performs it) is recorded with
+    exactly who did it (``Fact.corrected_by_role``, see app.facts) and
+    captured in the audit log like any other request — a banker correcting
+    someone else's fact is MORE visible after this change, not less.
+    """
+    fact = await _get_fact_or_404(session, fact_id)
+    if fact.supplied_by == current_user.role or current_user.role == Role.BANKER:
+        return fact
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"only the {fact.supplied_by.value} who supplied this fact, or a banker doing "
+            f"due-diligence review, may correct it (you are {current_user.role.value})"
+        ),
+    )
 
 
 @app.post("/api/facts/{fact_id}/confirm")
@@ -280,9 +435,11 @@ async def correct_fact(
     current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
     session: AsyncSession = Depends(get_session),
 ) -> Fact:
-    await _require_own_fact(session, fact_id, current_user)
+    await _require_can_correct_fact(session, fact_id, current_user)
     try:
-        return await facts_repo.correct(session, fact_id, req.value, req.provenance)
+        return await facts_repo.correct(
+            session, fact_id, req.value, req.provenance, corrected_by_role=current_user.role
+        )
     except FactNotFound as exc:
         raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
 
@@ -719,3 +876,55 @@ async def export_bundle(
         media_type="application/zip",
         filename=BUNDLE_FILENAME,
     )
+
+
+# --------------------------------------------------------------------------
+# Audit log
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/audit")
+async def view_audit_log(
+    actor_email: str | None = Query(default=None, max_length=254),
+    action: str | None = Query(default=None, max_length=100),
+    resource_type: str | None = Query(default=None, max_length=50),
+    outcome: Outcome | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=2000),
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> list[AuditEvent]:
+    """Compliance review: who accessed or changed what, and when.
+
+    Banker-only — the same intermediary who holds certification authority
+    over the draft is the one with oversight over the audit trail, matching
+    the certification-lock philosophy everywhere else in this app. Every
+    request against the API (bar the health check) is recorded, including
+    denied ones, so this also answers "did anyone try something they
+    shouldn't have."
+    """
+    return get_audit_log().list_events(
+        actor_email=actor_email,
+        action=action,
+        resource_type=resource_type,
+        outcome=outcome,
+        limit=limit,
+    )
+
+
+# --------------------------------------------------------------------------
+# Extraction reliability (see app.extraction_reliability)
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/extraction-reliability")
+async def extraction_reliability(
+    _user: User = Depends(require_roles(Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
+) -> ExtractionReliabilityReport:
+    """How often extracted facts turn out to need correction, broken down by
+    source and confidence — and specifically how often a BANKER'S due-
+    diligence review is what caught it (as opposed to a self-correction).
+    Banker-only, same oversight rationale as the audit log above: this is a
+    QA signal about the tool's own reliability, not draft content.
+    """
+    store = await facts_repo.load_fact_store(session)
+    return compute_reliability(store)

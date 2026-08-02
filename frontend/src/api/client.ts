@@ -411,6 +411,24 @@ export interface ExportResponse {
   abridged: string;
 }
 
+// Extraction reliability (backend/app/extraction_reliability) — mirrors
+// ExtractionReliabilityBucket/Report exactly.
+export interface ExtractionReliabilityBucket {
+  provenance_kind: string; // "document" | "lookup" | "role_upload"
+  confidence_band: string;
+  total_facts: number;
+  corrected_count: number;
+  correction_rate: number | null;
+  banker_caught_count: number;
+}
+
+export interface ExtractionReliabilityReport {
+  buckets: ExtractionReliabilityBucket[];
+  total_extracted_facts: number;
+  total_corrections: number;
+  total_banker_caught_corrections: number;
+}
+
 // --------------------------------------------------------------------------
 // Typed API functions — one per endpoint in backend/app/main.py
 // --------------------------------------------------------------------------
@@ -505,6 +523,10 @@ export const recordEdit = (edit: BankerEdit): Promise<ReviewState> =>
 
 export const exportPackage = (): Promise<ExportResponse> =>
   apiPost<ExportResponse>("/api/review/export", {});
+
+// Extraction reliability (banker-only)
+export const getExtractionReliability = (): Promise<ExtractionReliabilityReport> =>
+  apiGet<ExtractionReliabilityReport>("/api/extraction-reliability");
 
 // Assembly — returns the URL the browser can point an <a href> / download at.
 // Not fetched here because the response is a .docx binary, not JSON.
