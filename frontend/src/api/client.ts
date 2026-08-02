@@ -268,6 +268,29 @@ export interface Objection {
   resolved: boolean;
 }
 
+// Iterative examiner (backend/app/validate/iterative_examiner.py) — loops
+// examine() + revision until a round raises no objection unseen earlier.
+export interface ExaminationRound {
+  round_number: number;
+  objections: Objection[];
+  new_objection_count: number;
+  revised_entry_ids: string[];
+}
+
+export type IterativeExaminerStopReason =
+  | "survived"
+  | "no_new_objections"
+  | "no_revisable_objections"
+  | "max_rounds_reached";
+
+export interface IterativeExaminationReport {
+  rounds: ExaminationRound[];
+  final_sections: GeneratedSection[];
+  final_objections: Objection[];
+  survived: boolean;
+  stop_reason: IterativeExaminerStopReason;
+}
+
 // Objects-of-the-Issue arithmetic check (backend/app/validate/arithmetic.py).
 // Deterministic integer arithmetic over confirmed facts — no LLM involved.
 export interface ArithmeticFinding {
@@ -496,6 +519,16 @@ export const getArithmetic = (): Promise<ArithmeticFinding[]> =>
 
 export const getExaminer = (): Promise<Objection[]> =>
   apiGet<Objection[]>("/api/validate/examiner");
+
+// Promoter-only (same restriction as postGenerate — it can rewrite draft
+// text). Requires postGenerate to have run first (backend answers 409
+// otherwise). Caches the (possibly revised) final sections the same way
+// postGenerate does, so a subsequent getSections() reflects the result.
+export const postExaminerIterative = (maxRounds = 3): Promise<IterativeExaminationReport> =>
+  apiPost<IterativeExaminationReport>(
+    `/api/validate/examiner/iterative?max_rounds=${maxRounds}`,
+    {},
+  );
 
 // Coverage
 export const getCoverage = (): Promise<CoverageReport> =>
