@@ -13,6 +13,7 @@ import {
   getGaps,
   getSections,
   getSemantic,
+  postExaminerIterative,
   postGenerate,
   type ArithmeticFinding,
   type BenchmarkReport,
@@ -23,6 +24,7 @@ import {
   type Fact,
   type GapReport,
   type GeneratedSection,
+  type IterativeExaminationReport,
   type Objection,
   type ReferenceBenchmark,
   type Role,
@@ -463,6 +465,51 @@ function ObjectionsList({ items }: { items: Objection[] }) {
   );
 }
 
+const STOP_REASON_COPY: Record<IterativeExaminationReport["stop_reason"], string> = {
+  survived: "Survived: the final round raised zero objections.",
+  no_new_objections:
+    "Stopped: a round repeated only objections already seen — nothing new to fix.",
+  no_revisable_objections:
+    "Stopped: every remaining objection needs a new or corrected fact, not a rewrite.",
+  max_rounds_reached: "Stopped: hit the round budget with objections still open.",
+};
+
+function IterativeExaminationPanel({ report }: { report: IterativeExaminationReport }) {
+  return (
+    <div className="space-y-3">
+      <div
+        className={
+          "rounded border p-2 text-xs font-medium " +
+          (report.survived
+            ? "border-green-300 bg-green-50 text-green-800"
+            : "border-amber-300 bg-amber-50 text-amber-900")
+        }
+      >
+        {STOP_REASON_COPY[report.stop_reason]}
+      </div>
+      <ul className="space-y-1">
+        {report.rounds.map((r) => (
+          <li key={r.round_number} className="text-xs text-gray-600">
+            Round {r.round_number}: {r.objections.length} objection
+            {r.objections.length === 1 ? "" : "s"} ({r.new_objection_count} new)
+            {r.revised_entry_ids.length > 0
+              ? ` — revised ${r.revised_entry_ids.length} section${
+                  r.revised_entry_ids.length === 1 ? "" : "s"
+                } before this round`
+              : ""}
+          </li>
+        ))}
+      </ul>
+      <div>
+        <div className="text-xs font-medium text-gray-700 mb-1">
+          Objections after the final round:
+        </div>
+        <ObjectionsList items={report.final_objections} />
+      </div>
+    </div>
+  );
+}
+
 function SeverityBadge({ severity }: { severity: Severity }) {
   const cls =
     severity === "blocker"
@@ -843,6 +890,12 @@ export default function DraftViewer() {
   const [objections, setObjections] = useState<Objection[] | null>(null);
   const [examinerState, setExaminerState] = useState<LoadState>("idle");
 
+  const [iterativeReport, setIterativeReport] = useState<IterativeExaminationReport | null>(
+    null,
+  );
+  const [iterativeState, setIterativeState] = useState<LoadState>("idle");
+  const [iterativeError, setIterativeError] = useState<string | null>(null);
+
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [coverageState, setCoverageState] = useState<LoadState>("idle");
 
@@ -969,6 +1022,28 @@ export default function DraftViewer() {
       setExaminerState("ready");
     } catch {
       setExaminerState("error");
+    }
+  };
+
+  // Loops revise-then-re-examine until a round raises nothing new (see
+  // app.validate.iterative_examiner). Promoter-only — it can rewrite draft
+  // text — and it caches the (possibly revised) sections back server-side,
+  // so we refresh the local sections/objections state to match rather than
+  // leaving the on-screen draft stale relative to what GET /api/sections
+  // now returns.
+  const runIterativeExaminer = async () => {
+    setIterativeState("loading");
+    setIterativeError(null);
+    try {
+      const report = await postExaminerIterative();
+      setIterativeReport(report);
+      setSections(report.final_sections);
+      setObjections(report.final_objections);
+      setExaminerState("ready");
+      setIterativeState("ready");
+    } catch (e) {
+      setIterativeError(e instanceof Error ? e.message : "Unknown error");
+      setIterativeState("error");
     }
   };
 
@@ -1357,6 +1432,37 @@ export default function DraftViewer() {
                     <StatusPill state={examinerState} label="examiner" />
                   </div>
                   {objections !== null ? <ObjectionsList items={objections} /> : null}
+                </div>
+
+                <div id="panel-iterative-examiner">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runIterativeExaminer}
+                      disabled={iterativeState === "loading"}
+                      title="Loop the examiner: revise flagged sections and re-check until no new objections turn up"
+                    >
+                      {iterativeState === "loading"
+                        ? "Running rounds…"
+                        : "Run examiner until it survives review"}
+                    </button>
+                    <StatusPill state={iterativeState} label="iterative examiner" />
+                  </div>
+                  {iterativeError ? (
+                    <p className="text-xs text-red-600 mb-2">{iterativeError}</p>
+                  ) : null}
+                  {iterativeReport !== null ? (
+                    <IterativeExaminationPanel report={iterativeReport} />
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      Revises sections carrying a fixable objection (boilerplate, reviewer
+                      prose) and re-examines, looping until a round raises nothing new. Data
+                      problems — missing facts, contradictions, arithmetic mismatches,
+                      unverified extractions — need a new or corrected fact instead; the loop
+                      recognises those and stops rather than looping forever.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : null}

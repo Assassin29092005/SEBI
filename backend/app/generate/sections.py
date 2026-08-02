@@ -347,6 +347,26 @@ def _build_user_prompt(entry: ChecklistEntry, facts: list[Fact]) -> str:
     )
 
 
+def _append_feedback(user_prompt: str, feedback: list[str]) -> str:
+    """Fold reviewer objections into the generation prompt for a revision pass.
+
+    Used by app.validate.iterative_examiner to ask for a rewrite that
+    addresses specific objections — the instruction to never invent a fact
+    to satisfy one is explicit here because a naive rewrite is exactly where
+    that temptation would otherwise creep in (unlike first-pass generation,
+    the model has now been told a reviewer wasn't satisfied).
+    """
+    bullets = "\n".join(f"- {item}" for item in feedback)
+    return (
+        f"{user_prompt}\n\n"
+        "A reviewer raised the following objections against your previous draft "
+        "of this section. Rewrite the section to resolve every objection you can "
+        "using ONLY the facts above — never invent a new fact, number, name, "
+        "date, or clause reference to resolve one you cannot fix with the given "
+        f"facts:\n{bullets}"
+    )
+
+
 def _extract_citations(raw: str) -> tuple[str, list[Citation]]:
     """Strip ``[F:<fact_id>]`` markers; return cleaned text + spans over it.
 
@@ -416,7 +436,9 @@ def _passes_hallucination_guard(
 # --------------------------------------------------------------------------
 
 
-async def generate_section(entry: ChecklistEntry, store: FactStore) -> GeneratedSection:
+async def generate_section(
+    entry: ChecklistEntry, store: FactStore, *, feedback: list[str] | None = None
+) -> GeneratedSection:
     """Generate one section grounded in confirmed facts only.
 
     Retrieves every confirmed fact for ``entry.required_facts`` (all versions
@@ -425,13 +447,21 @@ async def generate_section(entry: ChecklistEntry, store: FactStore) -> Generated
     unavailable or its output fails the hallucination guard. Keys with no
     confirmed fact are listed in ``missing_facts`` and rendered as
     ``[REQUIRES INPUT]`` marker lines.
+
+    ``feedback`` (optional): reviewer objections to fold into the prompt as a
+    revision request — see app.validate.iterative_examiner, the only caller
+    that passes it. Every other call site (including generate_all) leaves it
+    unset and behaviour is exactly as before; the hallucination guard below
+    applies identically either way, so a revision can never be less safe than
+    a first-pass generation.
     """
     facts_by_key = {key: store.confirmed_by_key(key) for key in entry.required_facts}
     missing = [key for key, found in facts_by_key.items() if not found]
     ordered_facts = [fact for found in facts_by_key.values() for fact in found]
 
     if entry.id == _DEFINITIONS_ENTRY_ID:
-        # System-authored glossary, never sent to the LLM.
+        # System-authored glossary, never sent to the LLM — a rewrite request
+        # has nothing to act on.
         return _render_definitions_abbreviations(entry, ordered_facts, missing)
 
     if entry.id == "offering.terms_of_issue":
@@ -441,10 +471,14 @@ async def generate_section(entry: ChecklistEntry, store: FactStore) -> Generated
     if not ordered_facts:
         return _render_deterministic(entry, [], missing)
 
+    user_prompt = _build_user_prompt(entry, ordered_facts)
+    if feedback:
+        user_prompt = _append_feedback(user_prompt, feedback)
+
     try:
         response = await grounded_complete(
             system=_SYSTEM_PROMPT,
-            user=_build_user_prompt(entry, ordered_facts),
+            user=user_prompt,
             context_fact_ids=[fact.fact_id for fact in ordered_facts],
         )
     except (LLMUnavailable, NotImplementedError):
