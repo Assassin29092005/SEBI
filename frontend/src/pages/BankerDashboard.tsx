@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ClauseChip } from "../components/ClauseChip";
 import {
   advanceSection,
   acceptProposal,
@@ -630,7 +631,7 @@ export default function BankerDashboard() {
                         {entry.title}
                       </div>
                       <div className="text-xs text-slate-500">
-                        {entry.clause_ref}
+                        <ClauseChip clauseRef={entry.clause_ref} />
                       </div>
                       {noText && (
                         <div className="text-xs text-amber-700 mt-1">

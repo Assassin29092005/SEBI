@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { ClauseChip } from "../components/ClauseChip";
 
 import {
   postEligibility,
@@ -241,20 +242,12 @@ function BoolRow({
   );
 }
 
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">
-      {children}
-    </span>
-  );
-}
-
 function ReadinessCard({ item }: { item: ReadinessItem }) {
   return (
     <li className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
       <div className="mb-2 flex items-start justify-between gap-3">
         <h3 className="text-sm font-semibold text-gray-900">{item.criterion}</h3>
-        <Chip>{item.clause_ref}</Chip>
+        <ClauseChip clauseRef={item.clause_ref} />
       </div>
       <dl className="space-y-2 text-sm">
         <div>

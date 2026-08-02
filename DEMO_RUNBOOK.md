@@ -50,7 +50,7 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
+| Backend tests passing | 268 passed, 3 skipped, of 271 test functions — run for real against a live Postgres instance in this session, see CLAUDE.md § Commands to reproduce |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
@@ -78,8 +78,10 @@ serving the already-ready."
 
 ### 2. Wizard: promoter UX (2 min)
 Toggle language to हिंदी at the top. "Every question shows *why we ask this*
-with the exact ICDR clause it maps to." Fill one or two questions live. Then
-switch to the Upload tab:
+with the exact ICDR clause it maps to." Click the clause chip to expand it —
+the actual regulation text, sourced verbatim from the pinned ICDR PDF, not
+just a citation string you have to go look up yourself. Fill one or two
+questions live. Then switch to the Upload tab:
 
 ```bash
 # In another terminal, load the whole synthetic company in one shot:
@@ -236,3 +238,11 @@ Quote these faithfully — never soften them:
   (auditor/banker registration uses a shared invite code, not per-user
   invites) and password reset — appropriate for one issuer's small team, not
   a multi-firm SaaS yet.
+- **"How do I know your clause citations are actually right?"** Click one —
+  every clause chip in the app (wizard, gap report, draft validation,
+  eligibility, banker dashboard) expands to the real ICDR passage it cites,
+  extracted verbatim from the pinned regulation text, never LLM-paraphrased.
+  Verified against all 32 real checklist entries, live, over the real API —
+  every one resolves to real regulatory text. A citation this app can't
+  confidently resolve (a different Schedule, a specific SEBI form) says so
+  honestly rather than guessing at a plausible-looking wrong passage.

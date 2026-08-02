@@ -73,6 +73,7 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
+from app.regulation_text import ClauseTextResult, find_clause_text
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
@@ -302,6 +303,19 @@ async def health() -> dict[str, str]:
 @app.get("/api/schema")
 async def get_schema() -> Checklist:
     return checklist
+
+
+@app.get("/api/clause-text")
+async def clause_text(
+    clause_ref: str = Query(..., min_length=1, max_length=1000),
+) -> ClauseTextResult:
+    """Resolve a checklist entry's ``clause_ref`` to the real regulation text
+    it cites — see :mod:`app.regulation_text`. Public/unauthenticated, same
+    as ``GET /api/schema``: the checklist (and every clause_ref in it) is
+    already public, so the regulation text behind it carries no additional
+    sensitivity.
+    """
+    return find_clause_text(clause_ref)
 
 
 # --------------------------------------------------------------------------

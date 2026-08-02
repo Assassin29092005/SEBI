@@ -25,6 +25,11 @@ banker certification → exchange-ready package**. The tool:
   attempts, reviewable via `GET /api/audit` (banker-only).
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
+- Every clause citation in the app expands, on click, to the actual pinned
+  ICDR passage it cites (`backend/app/regulation_text.py`,
+  `GET /api/clause-text`) — sourced verbatim from `data/regulation/`, never
+  LLM-paraphrased, and never a guessed passage for a citation it can't
+  confidently resolve.
 - Extracts facts from uploads, gates every value on promoter confirmation,
   and refuses to feed unconfirmed data into generation.
 - Writes each disclosure section grounded in the fact store only. Missing
@@ -57,7 +62,7 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
   source uploads and the access-log audit trail respectively (gitignored;
   see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 248 backend test functions (needs a running Postgres — see below).
+- `tests/` — 271 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 

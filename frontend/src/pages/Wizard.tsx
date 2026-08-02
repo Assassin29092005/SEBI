@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { ClauseChip } from "../components/ClauseChip";
 import {
   acceptProposal,
   confirmFact,
@@ -711,9 +712,10 @@ function QuestionCard(props: QuestionCardProps) {
       {expanded && (
         <div className="mt-2 rounded bg-gray-50 border border-gray-200 p-3 text-sm text-gray-700">
           <p className="mb-2">{q.why_we_ask}</p>
-          <span className="inline-block rounded bg-white border text-xs px-2 py-0.5 text-gray-700">
-            {t.clauseChip}: {q.clause_ref}
-          </span>
+          <div className="flex items-start gap-1 text-xs text-gray-700">
+            <span className="mt-0.5 shrink-0">{t.clauseChip}:</span>
+            <ClauseChip clauseRef={q.clause_ref} />
+          </div>
           {q.help_text && <p className="mt-2 text-xs text-gray-500">{q.help_text}</p>}
         </div>
       )}

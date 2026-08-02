@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ClauseChip } from "../components/ClauseChip";
 import { getCoverage, getGaps, getSchema, getWizardQuestions } from "../api/client";
 import type {
   ChecklistEntry,
@@ -212,17 +213,6 @@ function SeverityBadge({ severity }: { severity: Severity }) {
       }
     >
       {SEVERITY_LABELS[severity]}
-    </span>
-  );
-}
-
-function ClauseChip({ clauseRef }: { clauseRef: string }) {
-  return (
-    <span
-      className="inline-block max-w-full break-words whitespace-normal rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
-      title={clauseRef}
-    >
-      {clauseRef}
     </span>
   );
 }

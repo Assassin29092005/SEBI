@@ -297,6 +297,30 @@ export interface CoverageReport {
   // serialised in the JSON response. Compute it on the frontend if needed.
 }
 
+// --------------------------------------------------------------------------
+// Clause-text retrieval (backend/app/regulation_text.py). Public, same as
+// getSchema — every clause_ref in the checklist is already public, so the
+// regulation text behind it carries no additional sensitivity.
+// --------------------------------------------------------------------------
+
+export interface ClausePassage {
+  locator: string; // e.g. "ICDR Reg. 230", "ICDR Sch. VI Part A, para (9)"
+  heading: string;
+  text: string;
+  source_file: string;
+  truncated: boolean;
+}
+
+export interface ClauseTextResult {
+  passages: ClausePassage[];
+  // Fragments of the clause_ref that look citable but weren't indexed —
+  // never a passage invented to fill the gap, just a pointer.
+  unresolved: string[];
+}
+
+export const getClauseText = (clauseRef: string): Promise<ClauseTextResult> =>
+  apiGet<ClauseTextResult>(`/api/clause-text?clause_ref=${encodeURIComponent(clauseRef)}`);
+
 // Reference-filing benchmark (backend/app/coverage.py, data/reference_drhps/)
 export interface ChapterMapping {
   heading: string;

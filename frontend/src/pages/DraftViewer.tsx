@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ClauseChip } from "../components/ClauseChip";
 import {
   assembleUrl,
   formatPaise,
@@ -445,11 +446,7 @@ function ObjectionsList({ items }: { items: Objection[] }) {
         >
           <div className="flex items-center gap-2 mb-1">
             <span className="font-mono text-gray-900">{o.entry_id}</span>
-            {o.clause_ref ? (
-              <span className="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs">
-                {o.clause_ref}
-              </span>
-            ) : null}
+            {o.clause_ref ? <ClauseChip clauseRef={o.clause_ref} /> : null}
             {o.resolved ? (
               <span className="inline-block px-2 py-0.5 rounded bg-green-100 text-green-800 text-xs">
                 Resolved
@@ -583,11 +580,7 @@ function ArithmeticList({ items }: { items: ArithmeticFinding[] }) {
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <SeverityBadge severity={f.severity} />
             <span className="font-mono text-xs text-gray-500">{f.kind}</span>
-            {f.clause_ref ? (
-              <span className="inline-block px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-xs">
-                {f.clause_ref}
-              </span>
-            ) : null}
+            {f.clause_ref ? <ClauseChip clauseRef={f.clause_ref} /> : null}
           </div>
           <div className="text-gray-800">{f.detail}</div>
         </li>
@@ -628,9 +621,7 @@ function GapsList({ report }: { report: GapReport }) {
             <span className="inline-block px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
               {ROUTED_LABEL[g.routed_to]}
             </span>
-            <span className="inline-block px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-              {g.clause_ref}
-            </span>
+            <ClauseChip clauseRef={g.clause_ref} />
           </div>
         </li>
       ))}

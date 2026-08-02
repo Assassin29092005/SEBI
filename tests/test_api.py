@@ -173,6 +173,41 @@ async def test_health_and_schema(fresh_app: AsyncClient) -> None:
     assert isinstance(schema["entries"], list) and schema["entries"]
 
 
+async def test_clause_text_resolves_a_real_citation(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/clause-text", params={"clause_ref": "ICDR Reg. 228"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["passages"]) == 1
+    assert body["passages"][0]["locator"] == "ICDR Reg. 228"
+    assert "eligible" in body["passages"][0]["text"]
+    assert body["unresolved"] == []
+
+
+async def test_clause_text_resolves_every_real_checklist_clause_ref(
+    fresh_app: AsyncClient,
+) -> None:
+    """End-to-end version of test_regulation_text.py's headline regression
+    guard — hits the real endpoint with every clause_ref the running app's
+    own checklist actually ships."""
+    schema = (await fresh_app.get("/api/schema")).json()
+    for entry in schema["entries"]:
+        resp = await fresh_app.get(
+            "/api/clause-text", params={"clause_ref": entry["clause_ref"]}
+        )
+        assert resp.status_code == 200, entry["id"]
+        assert resp.json()["passages"], f"{entry['id']}: {entry['clause_ref']}"
+
+
+async def test_clause_text_unresolved_ref_returns_empty_not_error(
+    fresh_app: AsyncClient,
+) -> None:
+    resp = await fresh_app.get(
+        "/api/clause-text", params={"clause_ref": "nothing citable here at all"}
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"passages": [], "unresolved": []}
+
+
 async def test_eligibility_pass(fresh_app: AsyncClient) -> None:
     payload = {
         "post_issue_paid_up_capital_paise": 15 * 10**9,   # ₹15 crore, well within cap
