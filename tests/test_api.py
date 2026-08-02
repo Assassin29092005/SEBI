@@ -288,6 +288,78 @@ async def test_confirm_and_correct_are_scoped_to_the_supplying_role(
     assert banker_corrects_own_fact.status_code == 200, banker_corrects_own_fact.text
 
 
+async def test_banker_can_correct_a_promoter_supplied_fact_for_due_diligence(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    """The deliberate widening this feature adds: a banker may correct ANY
+    fact during due-diligence review, not just their own uploads — the
+    promoter/auditor restriction is otherwise unchanged (see the test right
+    below this one). This is what makes "banker-correction feedback loop" a
+    real signal rather than one scoped to a banker's own rarely-corrected
+    uploads."""
+    promoter_fact_id = await _seed_fact(
+        fresh_app,
+        key="issuer_identity",
+        value="Sunrise Agrotch Ltd",  # deliberate typo an extraction might produce
+        detail="document:prospectus.pdf p.1",
+        confirmed=True,
+    )
+
+    # Confirmation is UNCHANGED: still 403, a banker can't vouch for a value
+    # they didn't supply.
+    banker_confirms = await fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/confirm", headers=banker_headers
+    )
+    assert banker_confirms.status_code == 403
+
+    # Correction is the new, deliberately-widened case.
+    correction = {
+        "value": "Sunrise Agrotech Ltd",
+        "provenance": {"kind": "document", "detail": "banker due-diligence review, p.1"},
+    }
+    resp = await fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/correct", json=correction, headers=banker_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["value"] == "Sunrise Agrotech Ltd"
+    assert body["provenance"]["supersedes"] == promoter_fact_id
+    # supplied_by is preserved from the original fact (still "promoter" —
+    # who vouches for the value is unchanged); corrected_by_role records who
+    # actually performed THIS correction.
+    assert body["supplied_by"] == "promoter"
+    assert body["corrected_by_role"] == "banker"
+
+
+async def test_auditor_still_cannot_correct_a_promoter_supplied_fact(
+    fresh_app: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The widening is BANKER-only — confirms auditor correction rights are
+    unchanged, not accidentally broadened alongside banker's."""
+    monkeypatch.setattr(settings, "auditor_invite_code", TEST_AUDITOR_INVITE)
+    auditor_token = await _register(
+        fresh_app,
+        email="auditor@test.example",
+        name="Test Auditor",
+        role="auditor",
+        invite_code=TEST_AUDITOR_INVITE,
+    )
+    promoter_fact_id = await _seed_fact(
+        fresh_app, key="issuer_identity", value="Sunrise Agrotech Ltd",
+        detail="wizard:issuer_identity", confirmed=True,
+    )
+    correction = {
+        "value": "Sunrise Agrotech Limited",
+        "provenance": {"kind": "wizard", "detail": "auditor tries to fix"},
+    }
+    resp = await fresh_app.post(
+        f"/api/facts/{promoter_fact_id}/correct",
+        json=correction,
+        headers={"Authorization": f"Bearer {auditor_token}"},
+    )
+    assert resp.status_code == 403
+
+
 async def test_uploads_extract_txt_payload(fresh_app: AsyncClient) -> None:
     body = b"Issue Size: Rs 14.00 crore\nSme Exchange: NSE Emerge\n"
     resp = await fresh_app.post(

@@ -7,6 +7,7 @@ import {
   exportPackage,
   getArithmetic,
   getContradictions,
+  getExtractionReliability,
   getReviewState,
   getSchema,
   getSections,
@@ -17,6 +18,7 @@ import {
   type ChecklistEntry,
   type ExportResponse,
   type ExtractionProposal,
+  type ExtractionReliabilityReport,
   type GeneratedSection,
   type ReviewState,
   type SectionState,
@@ -273,6 +275,111 @@ function DueDiligenceUpload({ reviewState, onUploadComplete }: DueDiligenceUploa
   );
 }
 
+// --------------------------------------------------------------------------
+// Extraction reliability (banker-only feedback-loop signal — see
+// backend/app/extraction_reliability). Every correction a banker or
+// promoter makes to an extracted fact already gets recorded with who did
+// it (Fact.corrected_by_role); this panel is the first place that history
+// turns into a QA signal instead of sitting invisibly in the fact chain.
+// --------------------------------------------------------------------------
+
+function formatPct(rate: number | null): string {
+  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
+}
+
+function ExtractionReliabilityPanel({
+  report,
+}: {
+  report: ExtractionReliabilityReport;
+}) {
+  const hasData = report.total_extracted_facts > 0;
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      <h2 className="text-lg font-semibold mb-1">Extraction reliability</h2>
+      <p className="text-sm text-slate-600 mb-4 max-w-3xl">
+        How often extracted facts (from a document, lookup, or role upload —
+        not a promoter typing an answer directly) turned out to need a
+        correction, and how often it was a banker&apos;s due-diligence review
+        that caught it rather than a self-correction. Builds up as real
+        corrections accumulate — sparse or empty on a fresh draft.
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 mb-4">
+        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Extracted facts tracked
+          </div>
+          <div className="text-2xl font-semibold text-slate-900">
+            {report.total_extracted_facts}
+          </div>
+        </div>
+        <div className="rounded border border-slate-200 bg-slate-50 p-3">
+          <div className="text-xs uppercase tracking-wide text-slate-500">
+            Total corrections
+          </div>
+          <div className="text-2xl font-semibold text-slate-900">
+            {report.total_corrections}
+          </div>
+        </div>
+        <div className="rounded border border-amber-200 bg-amber-50 p-3">
+          <div className="text-xs uppercase tracking-wide text-amber-700">
+            Caught by banker due diligence
+          </div>
+          <div className="text-2xl font-semibold text-amber-900">
+            {report.total_banker_caught_corrections}
+          </div>
+        </div>
+      </div>
+
+      {!hasData ? (
+        <p className="text-sm text-slate-500">
+          No extracted facts yet — this fills in once documents/uploads/
+          lookups start feeding the fact store.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-slate-600">
+              <tr>
+                <th className="px-3 py-2 font-medium">Source</th>
+                <th className="px-3 py-2 font-medium">Confidence</th>
+                <th className="px-3 py-2 font-medium">Facts</th>
+                <th className="px-3 py-2 font-medium">Corrected</th>
+                <th className="px-3 py-2 font-medium">Correction rate</th>
+                <th className="px-3 py-2 font-medium">Banker-caught</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.buckets.map((b) => (
+                <tr
+                  key={`${b.provenance_kind}-${b.confidence_band}`}
+                  className="border-t border-slate-200"
+                >
+                  <td className="px-3 py-2 text-slate-700">{b.provenance_kind}</td>
+                  <td className="px-3 py-2 text-slate-700">{b.confidence_band}</td>
+                  <td className="px-3 py-2 text-slate-700">{b.total_facts}</td>
+                  <td className="px-3 py-2 text-slate-700">{b.corrected_count}</td>
+                  <td className="px-3 py-2 text-slate-700">{formatPct(b.correction_rate)}</td>
+                  <td className="px-3 py-2 text-slate-700">
+                    {b.banker_caught_count > 0 ? (
+                      <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-medium">
+                        {b.banker_caught_count}
+                      </span>
+                    ) : (
+                      "0"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BankerDashboard() {
   // The server always records the authenticated banker as editor (see
   // POST /api/review/edit) — no free-text "editor" field to spoof or forget.
@@ -308,6 +415,12 @@ export default function BankerDashboard() {
     contradictions: number;
     arithmetic: number;
   } | null>(null);
+
+  // Extraction reliability report — banker-only, fetched the same
+  // non-blocking way as findingCounts above: the certification workflow
+  // must never depend on this endpoint being up.
+  const [reliabilityReport, setReliabilityReport] =
+    useState<ExtractionReliabilityReport | null>(null);
 
   // ----------------------------------------------------------------------
   // Initial load: schema + review state + generated sections in parallel.
@@ -351,6 +464,21 @@ export default function BankerDashboard() {
         }
       } catch {
         // Deliberately swallowed — see the findingCounts state comment.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const report = await getExtractionReliability();
+        if (!cancelled) setReliabilityReport(report);
+      } catch {
+        // Deliberately swallowed — see the reliabilityReport state comment.
       }
     })();
     return () => {
@@ -860,6 +988,11 @@ export default function BankerDashboard() {
           onUploadComplete={loadAll}
         />
       </div>
+
+      {/* --- Extraction reliability (feedback-loop signal) --------------- */}
+      {reliabilityReport && (
+        <ExtractionReliabilityPanel report={reliabilityReport} />
+      )}
 
       {/* --- Export + certification lock -------------------------------- */}
       <div>

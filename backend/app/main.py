@@ -61,6 +61,7 @@ from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.db import get_session
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
+from app.extraction_reliability import ExtractionReliabilityReport, compute_reliability
 from app.facts import Fact, FactStore, Provenance
 from app.facts_repo import FactNotFound
 from app.generate.sections import GeneratedSection, generate_all
@@ -359,30 +360,62 @@ async def add_fact(
     return await facts_repo.add(session, fact.model_copy(update={"supplied_by": current_user.role}))
 
 
+async def _get_fact_or_404(session: AsyncSession, fact_id: str) -> Fact:
+    try:
+        return await facts_repo.get(session, fact_id)
+    except FactNotFound as exc:
+        raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
+
+
 async def _require_own_fact(session: AsyncSession, fact_id: str, current_user: User) -> Fact:
     """Look up ``fact_id``, 404 if missing, 403 unless the caller supplied it.
 
-    Confirmation and correction are scoped to whoever supplied the fact, not
-    to promoters generically: a promoter confirms promoter-sourced facts, a
-    banker confirms banker-sourced ones (e.g. their own due-diligence
-    certificate upload), an auditor confirms auditor-sourced ones. The point
-    of requiring confirmation is that the supplying party vouches for the
-    extracted value — so it must be that same party who can confirm it, not
-    a different role rubber-stamping someone else's submission.
+    Used by CONFIRMATION only (see ``confirm_fact``) — confirming a fact is
+    the supplying party vouching for it, so it must be that same party, not
+    a different role rubber-stamping someone else's submission. Correction
+    has a broader rule; see ``_require_can_correct_fact``.
     """
-    try:
-        fact = await facts_repo.get(session, fact_id)
-    except FactNotFound as exc:
-        raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
+    fact = await _get_fact_or_404(session, fact_id)
     if fact.supplied_by != current_user.role:
         raise HTTPException(
             status_code=403,
             detail=(
-                f"only the {fact.supplied_by.value} who supplied this fact may confirm or "
-                f"correct it (you are {current_user.role.value})"
+                f"only the {fact.supplied_by.value} who supplied this fact may confirm it "
+                f"(you are {current_user.role.value})"
             ),
         )
     return fact
+
+
+async def _require_can_correct_fact(
+    session: AsyncSession, fact_id: str, current_user: User
+) -> Fact:
+    """Look up ``fact_id``, 404 if missing, 403 unless the caller may correct it.
+
+    The supplying party may always correct their own fact (same rule as
+    confirmation). A BANKER may additionally correct ANY fact regardless of
+    who supplied it — this is the due-diligence review authority the
+    problem statement requires the merchant banker to hold: catching a
+    promoter's misextracted figure during due diligence is exactly what
+    banker review is for, and a banker restricted to only their own
+    due-diligence-certificate uploads couldn't do that job at all. This is
+    strictly an ADDITIVE widening for BANKER only — promoter and auditor
+    correction rights are unchanged, confirmation is untouched for every
+    role, and every correction (whoever performs it) is recorded with
+    exactly who did it (``Fact.corrected_by_role``, see app.facts) and
+    captured in the audit log like any other request — a banker correcting
+    someone else's fact is MORE visible after this change, not less.
+    """
+    fact = await _get_fact_or_404(session, fact_id)
+    if fact.supplied_by == current_user.role or current_user.role == Role.BANKER:
+        return fact
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"only the {fact.supplied_by.value} who supplied this fact, or a banker doing "
+            f"due-diligence review, may correct it (you are {current_user.role.value})"
+        ),
+    )
 
 
 @app.post("/api/facts/{fact_id}/confirm")
@@ -402,9 +435,11 @@ async def correct_fact(
     current_user: User = Depends(require_roles(Role.PROMOTER, Role.AUDITOR, Role.BANKER)),
     session: AsyncSession = Depends(get_session),
 ) -> Fact:
-    await _require_own_fact(session, fact_id, current_user)
+    await _require_can_correct_fact(session, fact_id, current_user)
     try:
-        return await facts_repo.correct(session, fact_id, req.value, req.provenance)
+        return await facts_repo.correct(
+            session, fact_id, req.value, req.provenance, corrected_by_role=current_user.role
+        )
     except FactNotFound as exc:
         raise HTTPException(status_code=404, detail=f"fact not found: {fact_id}") from exc
 
@@ -873,3 +908,23 @@ async def view_audit_log(
         outcome=outcome,
         limit=limit,
     )
+
+
+# --------------------------------------------------------------------------
+# Extraction reliability (see app.extraction_reliability)
+# --------------------------------------------------------------------------
+
+
+@app.get("/api/extraction-reliability")
+async def extraction_reliability(
+    _user: User = Depends(require_roles(Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
+) -> ExtractionReliabilityReport:
+    """How often extracted facts turn out to need correction, broken down by
+    source and confidence — and specifically how often a BANKER'S due-
+    diligence review is what caught it (as opposed to a self-correction).
+    Banker-only, same oversight rationale as the audit log above: this is a
+    QA signal about the tool's own reliability, not draft content.
+    """
+    store = await facts_repo.load_fact_store(session)
+    return compute_reliability(store)

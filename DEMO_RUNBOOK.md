@@ -142,6 +142,19 @@ Advance a few blocker rows draft → reviewed → certified. Retry export.
 "The lock is a feature, not an apology — the problem statement requires
 intermediaries stay in the loop."
 
+### 9a. Extraction reliability panel (optional, 30 s)
+Scroll down on the Banker Dashboard past the due-diligence upload card.
+"Extraction reliability" shows correction rates bucketed by source
+(document / lookup / role upload) and confidence band, plus a specific
+count of corrections a **banker's** due-diligence review caught versus a
+self-correction by whoever originally supplied the fact. "This is the
+feedback loop — every correction already gets recorded with who did it;
+this is where that history turns into a QA signal on the tool's own
+extraction reliability, not just draft content." Honest if asked: on a
+single fresh demo run the numbers are sparse — it's designed to become
+meaningful with continuous real usage across drafting cycles, not a
+one-shot demo metric.
+
 ### 10. Open the docx (60 s)
 Package downloads as `drhp_studio_package.zip`. Extract, open `drhp.docx`:
 - Cover page carries both issue-size values + a bold red **CONTRADICTION
