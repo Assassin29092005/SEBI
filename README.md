@@ -23,6 +23,12 @@ banker certification → exchange-ready package**. The tool:
 - Full audit log: who viewed, edited, or confirmed what, and when — every
   request is recorded (see `backend/app/audit.py`), including denied
   attempts, reviewable via `GET /api/audit` (banker-only).
+- Banker-correction feedback loop: a banker may correct any extracted fact
+  during due-diligence review, not just their own uploads — every correction
+  records who performed it, and `GET /api/extraction-reliability`
+  (banker-only) aggregates those corrections into a reliability signal by
+  source and confidence, isolating how often a banker's review specifically
+  caught someone else's extraction error (see `backend/app/extraction_reliability.py`).
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,

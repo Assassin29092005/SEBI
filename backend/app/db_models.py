@@ -63,6 +63,7 @@ class FactRow(SQLModel, table=True):
     confidence: float
     confirmed: bool = Field(default=False, index=True)
     supplied_by: str
+    corrected_by_role: str | None = None
     created_at: datetime = Field(sa_column=Column(DateTime(timezone=True)))
 
 
