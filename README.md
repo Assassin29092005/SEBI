@@ -33,6 +33,11 @@ banker certification → exchange-ready package**. The tool:
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,
   and refuses to feed unconfirmed data into generation.
+- The wizard saves and resumes across sessions: every already-saved or
+  confirmed answer rehydrates from the fact store on load instead of
+  starting blank, and unsaved-but-typed text survives a closed tab via a
+  per-account local draft — a real promoter filling this out over days
+  should never have to retype what they already answered.
 - Writes each disclosure section grounded in the fact store only. Missing
   data renders as `[REQUIRES INPUT: …]`. A digit-level hallucination guard
   discards any LLM output containing a number that isn't in the facts.

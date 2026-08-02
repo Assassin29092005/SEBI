@@ -90,6 +90,13 @@ That pushes 42 wizard facts + 3 uploads through the real API — every
 extracted value is a *proposal* until confirmed against the highlighted
 source snippet. **An unconfirmed fact never feeds generation.**
 
+Optional aside if asked "what happens if a promoter gets interrupted?":
+refresh the Wizard tab after saving a couple of answers — the page reloads
+already showing them saved/confirmed, not blank, because it now rehydrates
+from the fact store instead of starting fresh every time. "A demo run is
+one sitting; a real SME promoter fills this out over days between other
+work. Losing progress to a closed tab was the actual gap, not a nice-to-have."
+
 ### 3. Gap Report (60 s)
 Nav → Gap Report. Show the three columns: **you can fix these** (promoter),
 **needs your auditor**, **needs your merchant banker**. "This routing is what
