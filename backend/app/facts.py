@@ -51,6 +51,14 @@ class Fact(BaseModel, frozen=True):
     confirmed: bool = False
     supplied_by: Role
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Who actually performed THIS correction — None for an original (never-
+    # corrected) fact. Deliberately separate from supplied_by, which keeps
+    # meaning "whose role vouches for this value" (see app.main's
+    # _require_own_fact) and is preserved unchanged across a correction.
+    # corrected_by_role is the feedback-loop signal app.extraction_reliability
+    # reads: a banker correcting a promoter-supplied extraction is exactly
+    # the due-diligence catch that signal exists to surface.
+    corrected_by_role: Role | None = None
 
 
 class FactStore:
@@ -70,7 +78,14 @@ class FactStore:
         self._facts[fact_id] = confirmed
         return confirmed
 
-    def correct(self, fact_id: str, new_value: Any, provenance: Provenance) -> Fact:
+    def correct(
+        self,
+        fact_id: str,
+        new_value: Any,
+        provenance: Provenance,
+        *,
+        corrected_by_role: Role | None = None,
+    ) -> Fact:
         """Corrections never mutate: a new version supersedes the old one."""
         old = self._facts[fact_id]
         replacement = Fact(
@@ -78,6 +93,7 @@ class FactStore:
             value=new_value,
             provenance=provenance.model_copy(update={"supersedes": fact_id}),
             supplied_by=old.supplied_by,
+            corrected_by_role=corrected_by_role,
         )
         return self.add(replacement)
 
