@@ -89,6 +89,7 @@ from app.validate.contradictions import (
 )
 from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
+from app.validate.iterative_examiner import IterativeExaminationReport, examine_iteratively
 
 logger = logging.getLogger("drhp.main")
 
@@ -667,6 +668,42 @@ async def validate_examiner(
     contradictions = await _current_contradictions(store)
     arithmetic = check_arithmetic(store)
     return await _examiner_objections(store, contradictions, arithmetic)
+
+
+@app.post("/api/validate/examiner/iterative")
+async def validate_examiner_iterative(
+    max_rounds: int = Query(3, ge=1, le=5),
+    _user: User = Depends(require_roles(Role.PROMOTER)),
+    session: AsyncSession = Depends(get_session),
+) -> IterativeExaminationReport:
+    """Loop the adversarial examiner — revising sections and re-examining —
+    until a round raises no objection unseen in an earlier round.
+
+    Promoter-only, same as POST /api/generate: this can rewrite section text
+    via the LLM, which is generation-adjacent, not a read. Requires
+    /api/generate to have run first (there is nothing cached to examine
+    otherwise). On return, the cached sections are updated to
+    ``report.final_sections`` — same caching contract as /api/generate — so
+    GET /api/sections, /api/coverage, /api/gaps, and the export bundle all
+    see the post-revision draft, not the pre-revision one.
+
+    ``max_rounds`` is bounded [1, 5]: each round can trigger one LLM call per
+    section still under objection, so an unbounded client-supplied value
+    would be an uncapped-cost lever (see CLAUDE.md's sanity-bound convention
+    for other numeric inputs).
+    """
+    store = await facts_repo.load_fact_store(session)
+    sections = runtime_cache.get_generated_sections()
+    if not sections:
+        raise HTTPException(
+            status_code=409, detail="no generated sections — run POST /api/generate first"
+        )
+    arithmetic = check_arithmetic(store)
+    report = await examine_iteratively(
+        sections, checklist, store, arithmetic_findings=arithmetic, max_rounds=max_rounds
+    )
+    runtime_cache.set_generated_sections(report.final_sections)
+    return report
 
 
 # --------------------------------------------------------------------------

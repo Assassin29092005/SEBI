@@ -159,6 +159,47 @@ export interface Fact {
   created_at: string; // ISO 8601 (datetime is serialised by Pydantic)
 }
 
+/**
+ * GET /api/facts returns the whole append-only history — every version,
+ * confirmed or not, superseded or not (see backend/app/facts.py's
+ * FactStore.all_facts). Resuming a form (the wizard, or anything else that
+ * wants "what's the current answer for this key") needs the single LIVE
+ * fact per key, the same "not in anyone's supersedes" resolution the
+ * backend already does in FactStore.confirmed_by_key/all_confirmed — done
+ * here client-side since GET /api/facts intentionally returns the raw
+ * history, not a resolved view.
+ *
+ * If more than one live fact shares a key (e.g. a wizard answer and an
+ * uploaded document value that were never reconciled — see the planted
+ * demo contradiction), a wizard-sourced one wins, since that's what the
+ * wizard itself would have last written; otherwise the most recently
+ * created live fact for that key is used. Never throws on an empty or
+ * malformed list.
+ */
+export function latestFactsByKey(facts: Fact[]): Map<string, Fact> {
+  const superseded = new Set(
+    facts.map((f) => f.provenance.supersedes).filter((id): id is string => id !== null),
+  );
+  const live = facts.filter((f) => !superseded.has(f.fact_id));
+
+  const byKey = new Map<string, Fact[]>();
+  for (const fact of live) {
+    const bucket = byKey.get(fact.key);
+    if (bucket) bucket.push(fact);
+    else byKey.set(fact.key, [fact]);
+  }
+
+  const result = new Map<string, Fact>();
+  for (const [key, candidates] of byKey) {
+    const wizardOne = candidates.find((f) => f.provenance.kind === "wizard");
+    const chosen =
+      wizardOne ??
+      candidates.slice().sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    result.set(key, chosen);
+  }
+  return result;
+}
+
 // --------------------------------------------------------------------------
 // Uploads / extraction (backend/app/intake/uploads.py)
 // --------------------------------------------------------------------------
@@ -266,6 +307,29 @@ export interface Objection {
   objection: string;
   clause_ref: string | null;
   resolved: boolean;
+}
+
+// Iterative examiner (backend/app/validate/iterative_examiner.py) — loops
+// examine() + revision until a round raises no objection unseen earlier.
+export interface ExaminationRound {
+  round_number: number;
+  objections: Objection[];
+  new_objection_count: number;
+  revised_entry_ids: string[];
+}
+
+export type IterativeExaminerStopReason =
+  | "survived"
+  | "no_new_objections"
+  | "no_revisable_objections"
+  | "max_rounds_reached";
+
+export interface IterativeExaminationReport {
+  rounds: ExaminationRound[];
+  final_sections: GeneratedSection[];
+  final_objections: Objection[];
+  survived: boolean;
+  stop_reason: IterativeExaminerStopReason;
 }
 
 // Objects-of-the-Issue arithmetic check (backend/app/validate/arithmetic.py).
@@ -496,6 +560,16 @@ export const getArithmetic = (): Promise<ArithmeticFinding[]> =>
 
 export const getExaminer = (): Promise<Objection[]> =>
   apiGet<Objection[]>("/api/validate/examiner");
+
+// Promoter-only (same restriction as postGenerate — it can rewrite draft
+// text). Requires postGenerate to have run first (backend answers 409
+// otherwise). Caches the (possibly revised) final sections the same way
+// postGenerate does, so a subsequent getSections() reflects the result.
+export const postExaminerIterative = (maxRounds = 3): Promise<IterativeExaminationReport> =>
+  apiPost<IterativeExaminationReport>(
+    `/api/validate/examiner/iterative?max_rounds=${maxRounds}`,
+    {},
+  );
 
 // Coverage
 export const getCoverage = (): Promise<CoverageReport> =>

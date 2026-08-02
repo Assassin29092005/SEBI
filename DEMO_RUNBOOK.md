@@ -90,6 +90,13 @@ That pushes 42 wizard facts + 3 uploads through the real API — every
 extracted value is a *proposal* until confirmed against the highlighted
 source snippet. **An unconfirmed fact never feeds generation.**
 
+Optional aside if asked "what happens if a promoter gets interrupted?":
+refresh the Wizard tab after saving a couple of answers — the page reloads
+already showing them saved/confirmed, not blank, because it now rehydrates
+from the fact store instead of starting fresh every time. "A demo run is
+one sitting; a real SME promoter fills this out over days between other
+work. Losing progress to a closed tab was the actual gap, not a nice-to-have."
+
 ### 3. Gap Report (60 s)
 Nav → Gap Report. Show the three columns: **you can fix these** (promoter),
 **needs your auditor**, **needs your merchant banker**. "This routing is what
@@ -119,6 +126,16 @@ raises exactly one **material `unallocated_proceeds`** finding against the
 ₹12.5 crore reading the objects (₹12.2 cr) + GCP (₹15 lakh) reconcile within
 1.2% — clean. "Real DRHP drafts miss this kind of off-by-a-crore all the
 time."
+
+### 6a. Iterative examiner (optional, 45 s)
+Expand Validation → **Run examiner until it survives review**. "The
+single-shot examiner raises objections once. This loops: it revises whatever
+it can — vague boilerplate, generic reviewer prose — and re-checks, round
+after round, until nothing new turns up." Point at the round-by-round list
+and the stop reason. Honest if asked: a missing fact or the planted
+contradiction is a *data* problem, not a wording problem — the loop
+recognises that (`no_revisable_objections`) and stops rather than pretending
+a rewrite fixed it; only a corrected or new fact resolves those.
 
 ### 7. Side-by-side vs. filed DRHPs (90 s)
 Expand **Benchmark vs filed DRHPs**. Tab through the three real NSE Emerge

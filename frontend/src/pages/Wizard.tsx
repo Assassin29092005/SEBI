@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   acceptProposal,
   confirmFact,
+  getFacts,
   getWizardQuestions,
+  latestFactsByKey,
   postFact,
   uploadExtract,
   formatPaise,
@@ -13,6 +15,7 @@ import type {
   Fact,
   WizardQuestion,
 } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 
 // ---------------------------------------------------------------------------
 // Language toggle
@@ -60,6 +63,9 @@ const UI_COPY: Record<Lang, {
   proposalAccepted: string;
   proposalRejected: string;
   footerNext: string;
+  resumedBanner: (n: number) => string;
+  dismiss: string;
+  resumeJump: string;
 }> = {
   en: {
     title: "Guided Wizard",
@@ -108,6 +114,10 @@ const UI_COPY: Record<Lang, {
     proposalAccepted: "Confirmed and added to your fact store.",
     proposalRejected: "Discarded. This value will not enter your draft.",
     footerNext: "Continue to your gap report",
+    resumedBanner: (n) =>
+      `Welcome back — ${n} answer${n === 1 ? "" : "s"} restored from your last session.`,
+    dismiss: "Dismiss",
+    resumeJump: "Continue where you left off",
   },
   hi: {
     title: "गाइडेड विज़ार्ड",
@@ -156,6 +166,9 @@ const UI_COPY: Record<Lang, {
     proposalAccepted: "पुष्टि की गई और आपके फैक्ट स्टोर में जोड़ी गई।",
     proposalRejected: "त्याग दिया गया। यह मान मसौदे में नहीं जाएगा।",
     footerNext: "अपनी गैप रिपोर्ट पर जारी रखें",
+    resumedBanner: (n) => `वापसी पर स्वागत है — आपके पिछले सत्र से ${n} उत्तर पुनर्स्थापित किए गए।`,
+    dismiss: "खारिज करें",
+    resumeJump: "जहाँ आपने छोड़ा था वहाँ से जारी रखें",
   },
 };
 
@@ -170,6 +183,81 @@ function parseRupeesToPaise(raw: string): number | null {
   const rupees = Number(cleaned);
   if (!Number.isSafeInteger(rupees) || rupees < 0) return null;
   return rupees * 100;
+}
+
+// ---------------------------------------------------------------------------
+// Draft-in-progress persistence (localStorage)
+//
+// A real promoter filling this over multiple sessions can lose typed-but-
+// unsaved text to a closed tab or a crashed browser — clicking "Save answer"
+// per question already makes that answer durable server-side (see
+// postFact below), but nothing protected what's mid-typed before that click.
+// Scoped per authenticated user id so a shared browser never leaks one
+// account's draft into another session; a server-confirmed/saved answer
+// (see the hydration effect in Wizard()) always wins over a local draft —
+// this is a safety net for text that never reached POST /api/facts, not a
+// second source of truth.
+// ---------------------------------------------------------------------------
+
+const DRAFT_STORAGE_PREFIX = "drhp_wizard_draft";
+
+interface StoredDraft {
+  textValue: string;
+  listValue: string[];
+}
+
+function draftStorageKey(userId: string, factKey: string): string {
+  return `${DRAFT_STORAGE_PREFIX}:${userId}:${factKey}`;
+}
+
+function saveDraft(userId: string | undefined, factKey: string, draft: StoredDraft): void {
+  if (!userId) return;
+  try {
+    localStorage.setItem(draftStorageKey(userId, factKey), JSON.stringify(draft));
+  } catch {
+    // Storage blocked or full — the draft just won't survive a reload.
+  }
+}
+
+function loadDraft(userId: string | undefined, factKey: string): StoredDraft | null {
+  if (!userId) return null;
+  try {
+    const raw = localStorage.getItem(draftStorageKey(userId, factKey));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredDraft>;
+    return {
+      textValue: typeof parsed.textValue === "string" ? parsed.textValue : "",
+      listValue: Array.isArray(parsed.listValue) ? parsed.listValue.map(String) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft(userId: string | undefined, factKey: string): void {
+  if (!userId) return;
+  try {
+    localStorage.removeItem(draftStorageKey(userId, factKey));
+  } catch {
+    // Storage blocked — nothing to clean up then.
+  }
+}
+
+// Reverse of the value-building logic in buildValue() below — turns an
+// already-saved Fact's value back into editable textValue/listValue, so
+// "Edit again" (or resuming a hydrated confirmed/awaiting_confirm answer)
+// repopulates the input instead of handing back a blank field.
+function factValueToDraft(q: WizardQuestion, value: unknown): StoredDraft {
+  if (q.input_hint === "money" && typeof value === "number" && Number.isInteger(value)) {
+    // The wizard only ever saves whole-rupee amounts (rupees * 100), so this
+    // division is always exact.
+    return { textValue: String(value / 100), listValue: [] };
+  }
+  if (q.input_hint === "list" && Array.isArray(value)) {
+    return { textValue: "", listValue: value.map(String) };
+  }
+  if (value === null || value === undefined) return { textValue: "", listValue: [] };
+  return { textValue: String(value), listValue: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +302,7 @@ interface ProposalState {
 type Tab = "questions" | "uploads";
 
 export default function Wizard() {
+  const { user } = useAuth();
   const [lang, setLang] = useState<Lang>("en");
   const t = UI_COPY[lang];
   const [tab, setTab] = useState<Tab>("questions");
@@ -227,6 +316,11 @@ export default function Wizard() {
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [states, setStates] = useState<Record<string, QuestionState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // -------- Resume state: what's already saved/confirmed server-side --------
+  const [remoteFacts, setRemoteFacts] = useState<Fact[] | null>(null);
+  const [justResumedCount, setJustResumedCount] = useState<number>(0);
+  const hydratedOnceRef = useRef(false);
 
   // -------- Upload state --------
   const [uploading, setUploading] = useState<boolean>(false);
@@ -266,21 +360,104 @@ export default function Wizard() {
     };
   }, [lang]);
 
-  // -------- Deep-link: scroll to the focused question once loaded --------
-  useEffect(() => {
-    if (!focusKey || !questions?.some((q) => q.fact_key === focusKey)) return;
+  // -------- Scroll-to-question, shared by the deep-link effect below and --
+  // -------- the "Continue where you left off" resume button.        ------
+  const jumpToQuestion = useCallback((factKey: string) => {
     setTab("questions");
-    setExpanded((prev) => ({ ...prev, [focusKey]: true }));
+    setExpanded((prev) => ({ ...prev, [factKey]: true }));
     // Next frame: card exists in the DOM after the render this effect follows.
     requestAnimationFrame(() => {
-      const el = document.getElementById(`q-${focusKey}`);
+      const el = document.getElementById(`q-${factKey}`);
       if (!el) return;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
       // Transient highlight; re-render simply drops it, which is fine.
       el.classList.add("ring-2", "ring-blue-400");
       setTimeout(() => el.classList.remove("ring-2", "ring-blue-400"), 2500);
     });
-  }, [focusKey, questions]);
+  }, []);
+
+  // -------- Deep-link: scroll to the focused question once loaded --------
+  useEffect(() => {
+    if (!focusKey || !questions?.some((q) => q.fact_key === focusKey)) return;
+    jumpToQuestion(focusKey);
+  }, [focusKey, questions, jumpToQuestion]);
+
+  // -------- Resume: fetch what's already saved server-side, once on mount --
+  // -------- (independent of the language toggle above — the answers are  --
+  // -------- language-agnostic values, only the question copy changes).   --
+  useEffect(() => {
+    let cancelled = false;
+    getFacts()
+      .then((facts) => {
+        if (!cancelled) setRemoteFacts(facts);
+      })
+      .catch(() => {
+        // Resume is a convenience, not a hard dependency — fail open into
+        // "nothing to resume" rather than blocking the wizard from loading.
+        if (!cancelled) setRemoteFacts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const latestByKey = useMemo(() => latestFactsByKey(remoteFacts ?? []), [remoteFacts]);
+
+  // -------- Hydrate: fill in any question whose local state is still     --
+  // -------- untouched this render session, from (in priority order) a   --
+  // -------- confirmed/saved server fact — a different device, or this    --
+  // -------- one after closing the tab and logging back in — then a      --
+  // -------- locally-saved draft (this device, text that was never sent). --
+  // -------- Never overwrites a key already interacted with (see          --
+  // -------- isPristine), so this can safely re-run — e.g. once           --
+  // -------- getWizardQuestions resolves a moment after getFacts does —   --
+  // -------- without clobbering active edits.                             --
+  useEffect(() => {
+    if (!questions || remoteFacts === null) return;
+    let resumedFromServer = 0;
+    setStates((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const q of questions) {
+        const current = next[q.fact_key];
+        const isPristine =
+          !current ||
+          (current.stage === "editing" &&
+            current.textValue === "" &&
+            current.listValue.length === 0 &&
+            current.savedFact === null);
+        if (!isPristine) continue;
+
+        const fact = latestByKey.get(q.fact_key);
+        if (fact) {
+          next[q.fact_key] = {
+            ...emptyQuestionState(),
+            stage: fact.confirmed ? "confirmed" : "awaiting_confirm",
+            savedFact: fact,
+          };
+          changed = true;
+          resumedFromServer += 1;
+          continue;
+        }
+
+        const draft = loadDraft(user?.user_id, q.fact_key);
+        if (draft && (draft.textValue || draft.listValue.length > 0)) {
+          next[q.fact_key] = { ...emptyQuestionState(), ...draft };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // Only announce the "welcome back" banner once per mount — after the
+    // first pass every previously-resumed key is no longer pristine, so
+    // later re-runs (language switch, a fresh fact from a live upload)
+    // would otherwise silently report 0 and never re-show it anyway, but
+    // the ref makes that explicit rather than relying on the side effect.
+    if (!hydratedOnceRef.current) {
+      hydratedOnceRef.current = true;
+      if (resumedFromServer > 0) setJustResumedCount(resumedFromServer);
+    }
+  }, [questions, remoteFacts, latestByKey, user?.user_id]);
 
   // -------- Grouping + progress --------
   const grouped = useMemo(() => {
@@ -297,6 +474,13 @@ export default function Wizard() {
     const total = questions?.length ?? 0;
     const confirmed = Object.values(states).filter((s) => s.stage === "confirmed").length;
     return { total, confirmed };
+  }, [questions, states]);
+
+  // First not-yet-confirmed question, in question order — the target for
+  // "Continue where you left off".
+  const nextUnconfirmed = useMemo(() => {
+    if (!questions) return null;
+    return questions.find((q) => (states[q.fact_key]?.stage ?? "editing") !== "confirmed") ?? null;
   }, [questions, states]);
 
   // -------- Helpers to mutate a single question's state --------
@@ -361,6 +545,10 @@ export default function Wizard() {
         savedFact: saved,
         errorMessage: null,
       });
+      // Now durable server-side — the local scratch copy would only ever
+      // go stale from here (e.g. if a banker corrects it via a different
+      // flow), so drop it rather than keep it around.
+      clearDraft(user?.user_id, q.fact_key);
     } catch (err: unknown) {
       updateState(q.fact_key, {
         stage: "error",
@@ -385,10 +573,18 @@ export default function Wizard() {
   }
 
   function handleEditAgain(q: WizardQuestion) {
+    // Repopulate the input from the value being edited — without this, a
+    // question resumed from a server fact (whose textValue/listValue were
+    // never populated, only savedFact/stage — see the hydration effect
+    // above) would hand back a blank field instead of the value being
+    // changed.
+    const s = states[q.fact_key];
+    const draft = s?.savedFact ? factValueToDraft(q, s.savedFact.value) : null;
     updateState(q.fact_key, {
       stage: "editing",
       savedFact: null,
       errorMessage: null,
+      ...(draft ?? {}),
     });
   }
 
@@ -459,6 +655,19 @@ export default function Wizard() {
         </div>
       </div>
 
+      {justResumedCount > 0 && (
+        <div className="mb-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 flex items-center justify-between gap-3">
+          <span>{t.resumedBanner(justResumedCount)}</span>
+          <button
+            type="button"
+            onClick={() => setJustResumedCount(0)}
+            className="shrink-0 text-blue-700 hover:underline text-xs"
+          >
+            {t.dismiss}
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-2 border-b mb-6">
         <TabButton active={tab === "questions"} onClick={() => setTab("questions")}>
           {t.tabQuestions}
@@ -476,11 +685,28 @@ export default function Wizard() {
           onRetry={() => setLang(lang)} // trigger re-fetch via effect
           grouped={grouped}
           progress={progress}
+          onResumeJump={
+            nextUnconfirmed && progress.confirmed > 0
+              ? () => jumpToQuestion(nextUnconfirmed.fact_key)
+              : null
+          }
           states={states}
           expanded={expanded}
           setExpanded={setExpanded}
-          onTextChange={(key, v) => updateState(key, { textValue: v })}
-          onListChange={(key, list) => updateState(key, { listValue: list })}
+          onTextChange={(key, v) => {
+            updateState(key, { textValue: v });
+            saveDraft(user?.user_id, key, {
+              textValue: v,
+              listValue: states[key]?.listValue ?? [],
+            });
+          }}
+          onListChange={(key, list) => {
+            updateState(key, { listValue: list });
+            saveDraft(user?.user_id, key, {
+              textValue: states[key]?.textValue ?? "",
+              listValue: list,
+            });
+          }}
           onSave={handleSave}
           onConfirm={handleConfirm}
           onEditAgain={handleEditAgain}
@@ -582,6 +808,7 @@ interface QuestionsPanelProps {
   onRetry: () => void;
   grouped: [string, WizardQuestion[]][];
   progress: { confirmed: number; total: number };
+  onResumeJump: (() => void) | null;
   states: Record<string, QuestionState>;
   expanded: Record<string, boolean>;
   setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
@@ -622,9 +849,20 @@ function QuestionsPanel(props: QuestionsPanelProps) {
   return (
     <div>
       <div className="mb-6">
-        <div className="flex justify-between text-sm text-gray-700 mb-1">
+        <div className="flex items-center justify-between gap-3 text-sm text-gray-700 mb-1">
           <span>{t.progress(progress.confirmed, progress.total)}</span>
-          <span>{pct}%</span>
+          <div className="flex items-center gap-3">
+            {props.onResumeJump && (
+              <button
+                type="button"
+                onClick={props.onResumeJump}
+                className="text-blue-700 hover:underline text-xs font-medium"
+              >
+                {t.resumeJump}
+              </button>
+            )}
+            <span>{pct}%</span>
+          </div>
         </div>
         <div className="h-2 bg-gray-200 rounded overflow-hidden">
           <div

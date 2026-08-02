@@ -33,6 +33,11 @@ banker certification → exchange-ready package**. The tool:
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,
   and refuses to feed unconfirmed data into generation.
+- The wizard saves and resumes across sessions: every already-saved or
+  confirmed answer rehydrates from the fact store on load instead of
+  starting blank, and unsaved-but-typed text survives a closed tab via a
+  per-account local draft — a real promoter filling this out over days
+  should never have to retype what they already answered.
 - Writes each disclosure section grounded in the fact store only. Missing
   data renders as `[REQUIRES INPUT: …]`. A digit-level hallucination guard
   discards any LLM output containing a number that isn't in the facts.
@@ -40,6 +45,13 @@ banker certification → exchange-ready package**. The tool:
   contradiction check, boilerplate detector, adversarial-examiner objections,
   and an Objects-of-the-Issue arithmetic check (objects sum + GCP ≟ issue
   size; GCP cap per Reg. 230(2)).
+- The adversarial examiner can loop: revise sections carrying a fixable
+  objection (boilerplate, reviewer prose) and re-examine, round after round,
+  until nothing new turns up — actually checking that the draft "survives
+  review" rather than raising objections once and never coming back. Missing
+  facts, contradictions, and arithmetic mismatches are recognised as data
+  problems no rewrite can fix, so the loop stops honestly instead of
+  spinning (`backend/app/validate/iterative_examiner.py`).
 - Locks export behind a per-section certification workflow so the merchant
   banker stays in the loop.
 - Assembles the DRHP and the draft abridged prospectus (Sch. VI Part E per

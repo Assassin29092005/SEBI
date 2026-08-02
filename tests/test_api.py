@@ -448,6 +448,50 @@ async def test_validate_endpoints_run_over_cached_sections(fresh_app: AsyncClien
         assert isinstance(resp.json(), list)
 
 
+async def test_iterative_examiner_requires_generate_first(fresh_app: AsyncClient) -> None:
+    """Nothing cached to examine — this is a workflow-order 409, not a crash."""
+    resp = await fresh_app.post("/api/validate/examiner/iterative")
+    assert resp.status_code == 409, resp.text
+
+
+async def test_iterative_examiner_is_promoter_only(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    """Same restriction as POST /api/generate — it can rewrite draft text."""
+    await fresh_app.post("/api/generate")
+    resp = await fresh_app.post("/api/validate/examiner/iterative", headers=banker_headers)
+    assert resp.status_code == 403
+
+
+async def test_iterative_examiner_runs_and_caches_final_sections(fresh_app: AsyncClient) -> None:
+    await fresh_app.post("/api/generate")
+    resp = await fresh_app.post("/api/validate/examiner/iterative")
+    assert resp.status_code == 200, resp.text
+    report = resp.json()
+    assert report["rounds"], "at least one round must always run"
+    assert report["rounds"][0]["round_number"] == 1
+    assert report["stop_reason"] in {
+        "survived",
+        "no_new_objections",
+        "no_revisable_objections",
+        "max_rounds_reached",
+    }
+    assert isinstance(report["survived"], bool)
+
+    # The (possibly revised) final sections are cached the same way
+    # POST /api/generate caches its output.
+    cached = (await fresh_app.get("/api/sections")).json()
+    assert cached == report["final_sections"]
+
+
+async def test_iterative_examiner_max_rounds_is_bounded(fresh_app: AsyncClient) -> None:
+    await fresh_app.post("/api/generate")
+    too_low = await fresh_app.post("/api/validate/examiner/iterative", params={"max_rounds": 0})
+    assert too_low.status_code == 422
+    too_high = await fresh_app.post("/api/validate/examiner/iterative", params={"max_rounds": 6})
+    assert too_high.status_code == 422
+
+
 async def test_validate_arithmetic_returns_findings_list(fresh_app: AsyncClient) -> None:
     """Shape only: an empty store may legitimately yield a missing_inputs finding."""
     resp = await fresh_app.get("/api/validate/arithmetic")
