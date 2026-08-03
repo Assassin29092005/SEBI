@@ -645,7 +645,7 @@ export default function Wizard() {
 
   return (
     <section>
-      <div className="flex items-start justify-between mb-4 gap-4">
+      <div className="flex flex-wrap items-start justify-between mb-4 gap-4">
         <div>
           <h1 className="text-2xl font-semibold mb-1">{t.title}</h1>
           <p className="text-gray-600 max-w-2xl">{t.intro}</p>

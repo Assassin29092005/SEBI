@@ -54,6 +54,11 @@ banker certification → exchange-ready package**. The tool:
   spinning (`backend/app/validate/iterative_examiner.py`).
 - Locks export behind a per-section certification workflow so the merchant
   banker stays in the loop.
+- Works on a phone, not just a laptop: the nav collapses to a mobile menu,
+  every input keeps a visible keyboard-focus ring (WCAG 2.4.7), and text
+  colors are checked against the WCAG AA 4.5:1 contrast floor rather than
+  eyeballed — a real SME promoter fills this out on whatever device they
+  have, between other work.
 - Assembles the DRHP and the draft abridged prospectus (Sch. VI Part E per
   Reg. 246(3)) as `.docx` and bundles the full audit trail as a `.zip`.
 
