@@ -30,6 +30,7 @@ import {
   type Role,
   type Severity,
 } from "../api/client";
+import DocumentSnippetViewer from "../components/DocumentSnippetViewer";
 
 // --------------------------------------------------------------------------
 // Small helpers
@@ -241,6 +242,12 @@ function FactPanel({
                 <blockquote className="border-l-4 border-gray-300 pl-3 text-gray-700 italic">
                   {fact.provenance.snippet}
                 </blockquote>
+                <DocumentSnippetViewer
+                  documentId={fact.provenance.document_id}
+                  sourceFile={fact.provenance.source_file ?? ""}
+                  page={fact.provenance.page}
+                  snippet={fact.provenance.snippet}
+                />
               </div>
             ) : null}
             <div className="flex items-center gap-2 pt-1">

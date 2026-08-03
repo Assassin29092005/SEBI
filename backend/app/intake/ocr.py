@@ -102,3 +102,35 @@ def render_pdf_page_to_image(content: bytes, page_index: int) -> Image.Image:
         zoom = _RENDER_DPI / 72
         pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
         return Image.open(BytesIO(pixmap.tobytes("png")))
+
+
+def render_pdf_page_with_highlight(content: bytes, page_index: int, snippet: str | None) -> bytes:
+    """Render one page (0-indexed) of a PDF to PNG bytes, highlighting every
+    occurrence of ``snippet`` found on it.
+
+    The inline document-viewer surface behind fact confirmation: a promoter
+    or banker gets the real page, not just a quoted snippet, with the exact
+    span highlighted when it can be found. ``page.search_for`` only matches
+    text present in the PDF's own embedded text layer — a scanned/
+    photographed page has none (that's exactly why OCR exists for it), so a
+    snippet sourced from OCR simply won't highlight here; the page still
+    renders correctly, just without the overlay. That is a real, honest
+    limitation, not a bug: pixel-precise highlighting of OCR'd text would
+    need Tesseract's own per-word bounding boxes, a separate, bigger
+    capability this function doesn't attempt.
+
+    Raises ``IndexError`` for an out-of-range ``page_index`` — callers
+    (see app.main) turn that into a 404, not a 500.
+    """
+    with fitz.open(stream=content, filetype="pdf") as doc:
+        if page_index < 0 or page_index >= doc.page_count:
+            raise IndexError(
+                f"page index {page_index} out of range (doc has {doc.page_count} pages)"
+            )
+        page = doc[page_index]
+        if snippet:
+            for rect in page.search_for(snippet):
+                page.add_highlight_annot(rect)
+        zoom = _RENDER_DPI / 72
+        pixmap = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+        return pixmap.tobytes("png")

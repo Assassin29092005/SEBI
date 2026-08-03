@@ -16,6 +16,7 @@ import type {
   WizardQuestion,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import DocumentSnippetViewer from "../components/DocumentSnippetViewer";
 
 // ---------------------------------------------------------------------------
 // Language toggle
@@ -532,6 +533,9 @@ export default function Wizard() {
         detail: `q:${q.fact_key}`,
         snippet: null,
         supersedes: null,
+        document_id: null,
+        page: null,
+        source_file: null,
       },
       confidence: 1,
       confirmed: false,
@@ -1347,6 +1351,12 @@ function ProposalCard({
           {t.proposalFoundOn} {p.page} · {p.source_file}
         </p>
         <p className="italic">“{p.snippet}”</p>
+        <DocumentSnippetViewer
+          documentId={p.document_id}
+          sourceFile={p.source_file}
+          page={p.page}
+          snippet={p.snippet}
+        />
       </div>
 
       {state.stage === "confirmed" && (

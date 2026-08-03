@@ -77,6 +77,39 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
   return res.json() as Promise<T>;
 }
 
+/**
+ * Fetch a binary response (an image, an archived document's raw bytes) with
+ * the same Authorization header every other request uses, and hand back an
+ * object URL the caller can drop straight into <img src>. A plain
+ * <img src="/api/..."> can't attach that header — every endpoint in this
+ * app requires one (see backend/app/auth) — so pointing one directly at an
+ * authenticated binary endpoint would 401 instead of rendering.
+ *
+ * The caller owns the returned URL: call revokeObjectUrl on it (typically
+ * in a cleanup effect) once done, or the blob leaks for the page's lifetime.
+ */
+export async function apiGetBlobUrl(path: string): Promise<string> {
+  const res = await fetch(path, { headers: { ...authHeaders() } });
+  if (res.status === 401) notifyUnauthorized();
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+export function revokeObjectUrl(url: string): void {
+  URL.revokeObjectURL(url);
+}
+
+/** Same auth-header requirement as apiGetBlobUrl, but for text content
+ * (a .txt source document) that the caller wants to search/highlight
+ * client-side rather than display as an image. */
+export async function apiGetText(path: string): Promise<string> {
+  const res = await fetch(path, { headers: { ...authHeaders() } });
+  if (res.status === 401) notifyUnauthorized();
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  return res.text();
+}
+
 // --------------------------------------------------------------------------
 // Enum-shaped string unions (mirror app.schema.models / app.facts / etc.)
 // --------------------------------------------------------------------------
@@ -144,6 +177,13 @@ export interface Provenance {
   detail: string;
   snippet: string | null;
   supersedes: string | null;
+  // Inline document viewer (backend/app/intake/vault + app.intake.uploads):
+  // links back to the archived original. document_id/page are null for
+  // anything not sourced from an upload (wizard answers, lookups) or when
+  // archiving failed server-side (best-effort, see app.main.uploads_extract).
+  document_id: string | null;
+  page: number | null;
+  source_file: string | null;
 }
 
 export interface Fact {
@@ -212,6 +252,8 @@ export interface ExtractionProposal {
   page: number;
   snippet: string;
   confidence: number;
+  // Links to the archived original — see Provenance.document_id above.
+  document_id: string | null;
 }
 
 // --------------------------------------------------------------------------
@@ -528,6 +570,32 @@ export const uploadExtract = (file: File): Promise<ExtractionProposal[]> => {
   const form = new FormData();
   form.append("file", file);
   return apiUpload<ExtractionProposal[]>("/api/uploads/extract", form);
+};
+
+// Inline document viewer (backend/app/intake/vault, app.main's
+// GET /api/uploads/{document_id}[/page/{page}]) — the fact-confirmation
+// trust mechanic: show the real source, not just a quoted snippet.
+
+/** The archived original's own bytes — used directly for an image upload
+ * (<img> via a blob URL, see apiGetBlobUrl) or fetched as text for a .txt
+ * upload (see apiGetText). Never used directly for a PDF — see
+ * documentPageImagePath below, which renders one page as a PNG instead,
+ * since a browser can't display "page N of this PDF" from raw bytes alone
+ * without a much heavier client-side PDF library. */
+export const uploadRawPath = (documentId: string): string =>
+  `/api/uploads/${encodeURIComponent(documentId)}`;
+
+/** One PDF page, rendered as a PNG with ``snippet`` highlighted where the
+ * page's own embedded text layer contains it (never for an OCR'd/scanned
+ * page — see render_pdf_page_with_highlight's docstring for why that's an
+ * honest limitation, not a bug). ``page`` is 1-indexed. */
+export const documentPageImagePath = (
+  documentId: string,
+  page: number,
+  snippet?: string,
+): string => {
+  const query = snippet ? `?snippet=${encodeURIComponent(snippet)}` : "";
+  return `/api/uploads/${encodeURIComponent(documentId)}/page/${page}${query}`;
 };
 
 export const acceptProposal = (p: ExtractionProposal, role: Role = "promoter"): Promise<Fact> =>

@@ -66,6 +66,7 @@ from app.facts import Fact, FactStore, Provenance
 from app.facts_repo import FactNotFound
 from app.generate.sections import GeneratedSection, generate_all
 from app.intake.litigation import LitigationRecord
+from app.intake.ocr import render_pdf_page_with_highlight
 from app.intake.uploads import ExtractionProposal, extract_facts, proposal_to_fact
 from app.intake.vault import (
     ArchivedDocumentMeta,
@@ -507,12 +508,16 @@ async def uploads_extract(
     # auditor review can check a fact's snippet against the real source
     # document, not just trust the snippet text. Archiving is best-effort:
     # a write failure here must not block the extraction the promoter is
-    # waiting on, so it's logged rather than raised.
+    # waiting on, so it's logged rather than raised — document_id simply
+    # stays None, and every produced proposal's inline-viewer link is
+    # unavailable but extraction itself is unaffected.
+    document_id: str | None = None
     try:
-        archive_upload(content, filename, file.content_type or "", current_user.role)
+        meta = archive_upload(content, filename, file.content_type or "", current_user.role)
+        document_id = meta.document_id
     except OSError:
         logger.warning("failed to archive upload %r — extraction proceeds anyway", filename)
-    return await extract_facts(filename, content)
+    return await extract_facts(filename, content, document_id=document_id)
 
 
 @app.get("/api/uploads")
@@ -535,6 +540,45 @@ async def download_upload(
         media_type=meta.content_type,
         headers={"Content-Disposition": f'attachment; filename="{meta.filename}"'},
     )
+
+
+@app.get("/api/uploads/{document_id}/page/{page_number}")
+async def document_page_image(
+    document_id: str,
+    page_number: int,
+    snippet: str | None = Query(default=None, max_length=2000),
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """Render one page of an archived PDF as a PNG, highlighting ``snippet``
+    where it can be found in the page's native text layer.
+
+    The inline document-viewer surface behind fact confirmation (see
+    app.intake.uploads' document_id threading and app.intake.ocr's
+    render_pdf_page_with_highlight) — a promoter or banker gets the real
+    page image, not just a quoted snippet, with the exact span highlighted
+    when the source PDF has embedded text (never for an OCR'd/scanned page,
+    which has none — an honest limitation, not a bug, see that function's
+    docstring). ``page_number`` is 1-indexed to match
+    ExtractionProposal.page / Fact.provenance.page. Only meaningful for
+    PDFs: image and text uploads are rendered directly by the frontend from
+    GET /api/uploads/{document_id} instead, since a browser can already
+    display those natively.
+    """
+    result = retrieve_upload(document_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"document not found: {document_id}")
+    meta, content = result
+    if not meta.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400, detail="page rendering is only available for PDF uploads"
+        )
+    if page_number < 1:
+        raise HTTPException(status_code=400, detail="page_number must be >= 1")
+    try:
+        png_bytes = render_pdf_page_with_highlight(content, page_number - 1, snippet)
+    except IndexError as exc:
+        raise HTTPException(status_code=404, detail=f"page {page_number} does not exist") from exc
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @app.post("/api/proposals/accept")

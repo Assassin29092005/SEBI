@@ -90,6 +90,14 @@ That pushes 42 wizard facts + 3 uploads through the real API — every
 extracted value is a *proposal* until confirmed against the highlighted
 source snippet. **An unconfirmed fact never feeds generation.**
 
+On a proposal card, click **View source document**. "This isn't a quoted
+string we're asking you to trust — it's the actual page, rendered inline,
+with the exact snippet highlighted." (For a `.pdf` upload this is a real
+page render with a genuine highlight overlay wherever the page has
+embedded text; for the bank sanction letter specifically it's a `.txt`
+upload, so the highlight is an exact substring match in the raw text —
+either way, the real source, not a paraphrase.)
+
 Optional aside if asked "what happens if a promoter gets interrupted?":
 refresh the Wizard tab after saving a couple of answers — the page reloads
 already showing them saved/confirmed, not blank, because it now rehydrates

@@ -1,9 +1,9 @@
 """Fact-store invariants: immutability, confirmation gating, correction versioning."""
 
 import pytest
-
 from app.facts import Fact, FactStore, Provenance, SourceKind
 from app.schema.models import Role
+from pydantic import ValidationError
 
 
 def make_fact(key: str = "issue_size_paise", value: object = 500_000_000_00) -> Fact:
@@ -81,3 +81,30 @@ def test_correction_without_corrected_by_role_defaults_to_none() -> None:
         original.fact_id, new_value=999, provenance=Provenance(kind=SourceKind.WIZARD, detail="x")
     )
     assert replacement.corrected_by_role is None
+
+
+def test_provenance_document_fields_default_to_none() -> None:
+    """A wizard-typed answer has no document behind it — never fabricated."""
+    provenance = Provenance(kind=SourceKind.WIZARD, detail="q:issue_size")
+    assert provenance.document_id is None
+    assert provenance.page is None
+    assert provenance.source_file is None
+
+
+def test_provenance_carries_document_link_for_the_inline_viewer() -> None:
+    provenance = Provenance(
+        kind=SourceKind.DOCUMENT,
+        detail="bank_sanction_letter.pdf p.2",
+        snippet="Issue Size: Rs 14.00 crore",
+        document_id="doc-abc-123",
+        page=2,
+        source_file="bank_sanction_letter.pdf",
+    )
+    assert provenance.document_id == "doc-abc-123"
+    assert provenance.page == 2
+    assert provenance.source_file == "bank_sanction_letter.pdf"
+
+
+def test_provenance_page_must_be_at_least_one() -> None:
+    with pytest.raises(ValidationError):
+        Provenance(kind=SourceKind.DOCUMENT, detail="x", page=0)

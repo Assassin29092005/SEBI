@@ -170,6 +170,79 @@ def test_proposal_to_fact_returns_unconfirmed_document_provenance() -> None:
     assert fact.supplied_by is Role.PROMOTER
     assert fact.key == "issue_size_paise"
     assert fact.value == 14 * 10**9
+    # No document_id passed on the proposal — the fact's link to the inline
+    # document viewer stays None too, never fabricated.
+    assert fact.provenance.document_id is None
+
+
+# --------------------------------------------------------------------------
+# document_id threading — the inline document-viewer link (app.intake.vault
+# via app.main.uploads_extract) carried from proposal through to Fact.
+# --------------------------------------------------------------------------
+
+
+def test_proposal_to_fact_carries_document_id_page_and_source_file() -> None:
+    proposal = ExtractionProposal(
+        fact_key="issue_size_paise",
+        value=14 * 10**9,
+        source_file="bank_sanction_letter.pdf",
+        page=2,
+        snippet="Issue Size: ₹14.00 crore",
+        confidence=0.9,
+        document_id="doc-abc-123",
+    )
+    fact = proposal_to_fact(proposal)
+
+    assert fact.provenance.document_id == "doc-abc-123"
+    assert fact.provenance.page == 2
+    assert fact.provenance.source_file == "bank_sanction_letter.pdf"
+    # detail is still the same human-readable rollup — the new fields are
+    # additive, not a replacement for it.
+    assert fact.provenance.detail == "bank_sanction_letter.pdf p.2"
+
+
+def test_deterministic_extract_facts_carry_document_id_when_given() -> None:
+    body = "Issue Size: ₹14.00 crore\n"
+    proposals = asyncio.run(
+        extract_facts("prospectus.txt", body.encode("utf-8"), document_id="doc-xyz-789")
+    )
+    assert proposals, "expected at least one proposal"
+    assert all(p.document_id == "doc-xyz-789" for p in proposals)
+
+
+def test_extract_facts_document_id_defaults_to_none() -> None:
+    body = "Issue Size: ₹14.00 crore\n"
+    proposals = asyncio.run(extract_facts("prospectus.txt", body.encode("utf-8")))
+    assert proposals, "expected at least one proposal"
+    assert all(p.document_id is None for p in proposals)
+
+
+def test_pdf_extraction_carries_document_id_through_native_text_path() -> None:
+    pdf_bytes = _make_pdf_bytes(text="Issue Size: Rs 14.00 crore")
+    proposals = asyncio.run(
+        extract_facts("prospectus.pdf", pdf_bytes, document_id="doc-pdf-1")
+    )
+    issue_size = [p for p in proposals if p.fact_key == "issue_size_paise"]
+    assert len(issue_size) == 1
+    assert issue_size[0].document_id == "doc-pdf-1"
+
+
+def test_llm_proposals_carry_document_id_when_given() -> None:
+    page_text = "Issue Size: ₹14.00 crore"
+    response = (
+        '[{"fact_key": "issue_size_paise", "value": 14000000000,'
+        ' "page": 1, "snippet": "Issue Size: ₹14.00 crore", "confidence": 0.9}]'
+    )
+    proposals = _parse_llm_proposals(
+        response,
+        1,
+        page_text,
+        "term_sheet.txt",
+        {"issue_size_paise"},
+        document_id="doc-llm-1",
+    )
+    assert len(proposals) == 1
+    assert proposals[0].document_id == "doc-llm-1"
 
 
 # --------------------------------------------------------------------------

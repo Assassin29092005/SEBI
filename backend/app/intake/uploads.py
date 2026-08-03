@@ -94,6 +94,11 @@ class ExtractionProposal(BaseModel):
     page: int
     snippet: str          # highlighted source text shown to the promoter
     confidence: float
+    # Links to the archived original (app.intake.vault) — None when
+    # archiving failed (best-effort, see app.main.uploads_extract) or for a
+    # caller that never archived at all (e.g. a hand-built test proposal).
+    # Carried through into Fact.provenance.document_id by proposal_to_fact.
+    document_id: str | None = None
 
 
 def label_for_key(key: str) -> str:
@@ -213,7 +218,10 @@ def _normalise_value(fact_key: str, raw: str) -> str | int | None:
 
 
 def _deterministic_extract(
-    page_texts: list[PageText], source_file: str, allowed_keys: set[str]
+    page_texts: list[PageText],
+    source_file: str,
+    allowed_keys: set[str],
+    document_id: str | None = None,
 ) -> list[ExtractionProposal]:
     """Scan for ``Label: value`` lines per the shared label convention (offline path).
 
@@ -242,6 +250,7 @@ def _deterministic_extract(
                     page=page_num,
                     snippet=line.strip(),
                     confidence=confidence,
+                    document_id=document_id,
                 )
             )
     return proposals
@@ -270,6 +279,7 @@ def _parse_llm_proposals(
     source_file: str,
     allowed_keys: set[str],
     is_ocr: bool = False,
+    document_id: str | None = None,
 ) -> list[ExtractionProposal]:
     """Defensive parse: drop anything malformed, unknown, or not grounded in the page.
 
@@ -337,13 +347,17 @@ def _parse_llm_proposals(
                 page=page_num,  # one call per page — trust our page number, not the model's
                 snippet=snippet,
                 confidence=confidence,
+                document_id=document_id,
             )
         )
     return proposals
 
 
 async def _llm_extract(
-    page_texts: list[PageText], source_file: str, allowed_keys: set[str]
+    page_texts: list[PageText],
+    source_file: str,
+    allowed_keys: set[str],
+    document_id: str | None = None,
 ) -> list[ExtractionProposal]:
     """One grounded_complete call per page; proposals validated against the page text."""
     system = _extraction_system_prompt(allowed_keys)
@@ -359,25 +373,38 @@ async def _llm_extract(
         )
         proposals.extend(
             _parse_llm_proposals(
-                response.text, page_num, page.text, source_file, allowed_keys, is_ocr=page.ocr
+                response.text,
+                page_num,
+                page.text,
+                source_file,
+                allowed_keys,
+                is_ocr=page.ocr,
+                document_id=document_id,
             )
         )
     return proposals
 
 
-async def extract_facts(filename: str, content: bytes) -> list[ExtractionProposal]:
+async def extract_facts(
+    filename: str, content: bytes, document_id: str | None = None
+) -> list[ExtractionProposal]:
     """Run LLM/deterministic extraction over an uploaded document.
 
     Both paths run and merge; the deterministic label scan guarantees an
     offline result (no API key needed), and LLM proposals win on a duplicate
     ``(fact_key, page)``. Every proposal still requires promoter confirmation.
+
+    ``document_id`` (optional) is the archived original's id in
+    app.intake.vault — see app.main.uploads_extract, the only real caller
+    that passes it — carried onto every produced proposal so the inline
+    document viewer can fetch the exact source back later.
     """
     page_texts = _page_texts(filename, content)
     allowed_keys = _allowed_fact_keys()
 
-    deterministic = _deterministic_extract(page_texts, filename, allowed_keys)
+    deterministic = _deterministic_extract(page_texts, filename, allowed_keys, document_id)
     try:
-        llm = await _llm_extract(page_texts, filename, allowed_keys)
+        llm = await _llm_extract(page_texts, filename, allowed_keys, document_id)
     except (LLMUnavailable, NotImplementedError):
         # NotImplementedError covers the pre-implementation provider stubs.
         logger.info("LLM unavailable — deterministic extraction only for %s", filename)
@@ -406,6 +433,9 @@ def proposal_to_fact(
             kind=SourceKind.DOCUMENT,
             detail=f"{proposal.source_file} p.{proposal.page}",
             snippet=proposal.snippet,
+            document_id=proposal.document_id,
+            page=proposal.page,
+            source_file=proposal.source_file,
         ),
         confidence=proposal.confidence,
         supplied_by=supplied_by,
