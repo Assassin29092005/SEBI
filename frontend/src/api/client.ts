@@ -612,6 +612,27 @@ export const postGenerate = (): Promise<GeneratedSection[]> =>
 export const getSections = (): Promise<GeneratedSection[]> =>
   apiGet<GeneratedSection[]>("/api/sections");
 
+// Vernacular draft translation (backend/app/generate/translate.py) — review
+// only, never the filed document. Unlike every other LLM-touching endpoint
+// there's no deterministic fallback: `translated: false` in the response is
+// the honest "didn't get translated this time" signal (no LLM configured,
+// the call failed, or the result introduced a number not in the source),
+// not an error to catch.
+export interface TranslatedSection {
+  entry_id: string;
+  lang: string;
+  text: string;
+  translated: boolean;
+}
+
+export const getSectionTranslation = (
+  entryId: string,
+  lang: string,
+): Promise<TranslatedSection> =>
+  apiGet<TranslatedSection>(
+    `/api/sections/${encodeURIComponent(entryId)}/translate?lang=${encodeURIComponent(lang)}`,
+  );
+
 // Validation
 export const getContradictions = (): Promise<Contradiction[]> =>
   apiGet<Contradiction[]>("/api/validate/contradictions");

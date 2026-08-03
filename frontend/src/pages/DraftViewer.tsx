@@ -11,6 +11,7 @@ import {
   getExaminer,
   getFacts,
   getGaps,
+  getSectionTranslation,
   getSections,
   getSemantic,
   getSuggestions,
@@ -31,6 +32,7 @@ import {
   type Role,
   type Severity,
   type SuggestedFix,
+  type TranslatedSection,
 } from "../api/client";
 import DocumentSnippetViewer from "../components/DocumentSnippetViewer";
 import TextDiff from "../components/TextDiff";
@@ -288,16 +290,29 @@ function SectionBlock({
   entry,
   factsById,
   onCiteClick,
+  lang,
+  translation,
+  translating,
 }: {
   entry: GeneratedSection;
   factsById: Map<string, Fact>;
   onCiteClick: (factId: string) => void;
+  lang: string;
+  translation: TranslatedSection | undefined;
+  translating: boolean;
 }) {
   const segments = useMemo(() => buildSegments(entry), [entry]);
   const citedFacts = useMemo(() => {
     const ids = Array.from(new Set(entry.citations.map((c) => c.fact_id)));
     return ids.map((id) => ({ id, fact: factsById.get(id) }));
   }, [entry.citations, factsById]);
+
+  // Translation review mode: plain fact-grounded prose, no clickable
+  // citation markers — a translation can't preserve the original text's
+  // character offsets, so citation spans can't be carried over. The
+  // "Sources" list below is unaffected (it's keyed by fact id, not by
+  // position in the text) and stays exactly as useful either way.
+  const showTranslation = lang !== "en";
 
   return (
     <article
@@ -314,8 +329,21 @@ function SectionBlock({
           ) : null}
         </div>
       </header>
-      <p className="text-sm text-gray-800 whitespace-pre-wrap leading-6">
-        {segments.map((seg) => {
+
+      {showTranslation ? (
+        <div>
+          <p className="text-sm text-gray-800 whitespace-pre-wrap leading-6">
+            {translating && !translation ? "Translating…" : (translation?.text ?? entry.text)}
+          </p>
+          <p className="mt-2 text-xs text-gray-500 italic">
+            {translation && !translation.translated
+              ? "Translation unavailable right now — showing the English original."
+              : "Shown for review only — citations are on the English original; switch back to English to see clickable sources."}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-800 whitespace-pre-wrap leading-6">
+          {segments.map((seg) => {
           if (!seg.marker) {
             return <span key={seg.key}>{seg.text}</span>;
           }
@@ -359,7 +387,8 @@ function SectionBlock({
             </span>
           );
         })}
-      </p>
+        </p>
+      )}
       {citedFacts.length > 0 ? (
         <div className="mt-3 border-t border-gray-100 pt-2">
           <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Sources</div>
@@ -992,6 +1021,13 @@ export default function DraftViewer() {
   const [sectionsState, setSectionsState] = useState<LoadState>("idle");
   const [sectionsError, setSectionsError] = useState<string | null>(null);
 
+  // Vernacular draft review (see app.generate.translate) — the wizard's
+  // existing EN/HI convention, extended to reading the draft itself, not
+  // just answering questions during intake.
+  const [lang, setLang] = useState<"en" | "hi">("en");
+  const [translations, setTranslations] = useState<Record<string, TranslatedSection>>({});
+  const [translatingState, setTranslatingState] = useState<LoadState>("idle");
+
   const [generateState, setGenerateState] = useState<LoadState>("idle");
   const [generateError, setGenerateError] = useState<string | null>(null);
 
@@ -1090,6 +1126,36 @@ export default function DraftViewer() {
     void loadFacts();
     void loadCoverage();
   }, [loadSections, loadFacts, loadCoverage]);
+
+  // Fetch translations for whatever's missing when the reviewer switches to
+  // a non-English language, or when new sections show up (regeneration,
+  // an iterative-examiner revision) while already viewing translated. Never
+  // re-fetches a section already translated this session — translation is
+  // a read aid, not something that needs to track every draft edit live.
+  useEffect(() => {
+    if (lang === "en" || sections.length === 0) return;
+    const missing = sections.filter((s) => !(s.entry_id in translations));
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    setTranslatingState("loading");
+    Promise.all(missing.map((s) => getSectionTranslation(s.entry_id, lang)))
+      .then((results) => {
+        if (cancelled) return;
+        setTranslations((prev) => {
+          const next = { ...prev };
+          for (const r of results) next[r.entry_id] = r;
+          return next;
+        });
+        setTranslatingState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setTranslatingState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lang, sections, translations]);
 
   const onGenerate = async () => {
     setGenerateState("loading");
@@ -1331,6 +1397,39 @@ export default function DraftViewer() {
         {sectionsError ? (
           <span className="text-xs text-red-600">Sections error: {sectionsError}</span>
         ) : null}
+
+        {sections.length > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-gray-500">Review in</span>
+            <div className="inline-flex overflow-hidden rounded border text-sm" role="group">
+              <button
+                type="button"
+                onClick={() => setLang("en")}
+                aria-pressed={lang === "en"}
+                className={
+                  "px-3 py-1.5 " +
+                  (lang === "en" ? "bg-gray-900 text-white" : "bg-white text-gray-700 hover:bg-gray-100")
+                }
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLang("hi")}
+                aria-pressed={lang === "hi"}
+                className={
+                  "px-3 py-1.5 border-l " +
+                  (lang === "hi" ? "bg-gray-900 text-white" : "bg-white text-gray-700 hover:bg-gray-100")
+                }
+              >
+                हिंदी
+              </button>
+            </div>
+            {lang !== "en" && translatingState === "loading" && (
+              <span className="text-xs text-gray-500 italic">Translating…</span>
+            )}
+          </div>
+        )}
       </div>
 
       {sections.length > 0 ? (
@@ -1403,6 +1502,9 @@ export default function DraftViewer() {
                   entry={entry}
                   factsById={factsById}
                   onCiteClick={setOpenFactId}
+                  lang={lang}
+                  translation={translations[entry.entry_id]}
+                  translating={translatingState === "loading"}
                 />
               ))}
             </div>

@@ -571,6 +571,52 @@ async def test_validate_endpoints_run_over_cached_sections(fresh_app: AsyncClien
         assert isinstance(resp.json(), list)
 
 
+async def test_translate_section_requires_generate_first(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get(
+        "/api/sections/general.definitions_abbreviations/translate", params={"lang": "hi"}
+    )
+    assert resp.status_code == 404
+
+
+async def test_translate_unknown_entry_id_returns_404(fresh_app: AsyncClient) -> None:
+    await fresh_app.post("/api/generate")
+    resp = await fresh_app.get(
+        "/api/sections/no-such-entry/translate", params={"lang": "hi"}
+    )
+    assert resp.status_code == 404
+
+
+async def test_translate_lang_en_is_noop_over_real_http(fresh_app: AsyncClient) -> None:
+    generated = (await fresh_app.post("/api/generate")).json()
+    entry_id = generated[0]["entry_id"]
+    resp = await fresh_app.get(
+        f"/api/sections/{entry_id}/translate", params={"lang": "en"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["lang"] == "en"
+    assert body["translated"] is True
+    assert body["text"] == generated[0]["text"]
+
+
+async def test_translate_offline_yields_honest_fallback_over_real_http(
+    fresh_app: AsyncClient,
+) -> None:
+    """No LLM key configured in the test environment (see conftest.py's
+    autouse key-blanking fixture) — the endpoint must still answer 200 with
+    an honest translated=False, never a 500 or a blank body."""
+    generated = (await fresh_app.post("/api/generate")).json()
+    entry_id = generated[0]["entry_id"]
+    resp = await fresh_app.get(
+        f"/api/sections/{entry_id}/translate", params={"lang": "hi"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["lang"] == "hi"
+    assert body["translated"] is False
+    assert body["text"] == generated[0]["text"]  # English original, not blank
+
+
 async def test_iterative_examiner_requires_generate_first(fresh_app: AsyncClient) -> None:
     """Nothing cached to examine — this is a workflow-order 409, not a crash."""
     resp = await fresh_app.post("/api/validate/examiner/iterative")

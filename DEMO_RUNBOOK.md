@@ -117,6 +117,16 @@ Nav → Draft. Click **Generate draft**. Five metric tiles appear at the top:
 sections generated · coverage % · gaps · **contradictions (RED)** · arithmetic
 findings.
 
+Optional beat: click **हिंदी** next to "Review in" above the sections. "Same
+idea as the wizard's language toggle, but for reading the draft back, not
+just answering questions — a promoter who answered everything in Hindi
+could previously only verify what we wrote in English." Honest if asked
+without an LLM key configured: the badge under the section will say
+translation is unavailable and show the English original untouched — "this
+is the one feature in the whole app with no offline fallback, because
+there's no deterministic way to translate prose. It never shows a blank
+page or an error, just an honest 'not translated this time.'"
+
 ### 5. THE MOMENT — planted contradiction (90 s)
 Click the red Contradictions tile. Banner unfurls:
 
