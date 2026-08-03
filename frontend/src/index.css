@@ -1,3 +1,26 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Accessibility: a visible focus indicator for every interactive element,
+   not just the handful of inputs that happen to set focus:ring explicitly
+   (WCAG 2.4.7 Focus Visible). Only fires for keyboard/AT focus, not a mouse
+   click, so it never adds a ring around a merely-clicked button. */
+:focus-visible {
+  outline: 2px solid #2563eb; /* blue-600 */
+  outline-offset: 2px;
+}
+
+/* Mobile: iOS Safari auto-zooms the viewport when a focused input's font
+   size is under 16px, which every form input in this app inherits from
+   Tailwind's text-sm (14px) utility. That auto-zoom is a real, frequently-
+   reported mobile-usability papercut, not a cosmetic nitpick — a promoter
+   filling the wizard on a phone (the realistic device for daily use)
+   shouldn't have the page jump-zoom every time they tap a field. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

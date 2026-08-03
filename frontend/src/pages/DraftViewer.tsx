@@ -935,7 +935,7 @@ function BenchmarkPanel({
                   not yet encoded
                 </span>
               ) : null}
-              {ch.note ? <span className="w-full text-xs text-gray-400 italic">{ch.note}</span> : null}
+              {ch.note ? <span className="w-full text-xs text-gray-500 italic">{ch.note}</span> : null}
             </div>
           </div>
         ))}
