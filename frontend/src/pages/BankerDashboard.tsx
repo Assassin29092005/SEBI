@@ -28,6 +28,7 @@ import {
   type StalenessCheckResult,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import TextDiff from "../components/TextDiff";
 
 // --------------------------------------------------------------------------
 // Small helpers
@@ -73,6 +74,7 @@ const STATE_BADGE: Record<SectionState, string> = {
   reviewed: "bg-blue-100 text-blue-800 border border-blue-300",
   certified: "bg-emerald-100 text-emerald-800 border border-emerald-300",
 };
+
 
 // --------------------------------------------------------------------------
 // Page
@@ -1090,24 +1092,7 @@ export default function BankerDashboard() {
                     <div className="text-xs text-slate-500 mt-0.5">
                       {edit.entry_id}
                     </div>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      <div>
-                        <div className="text-xs font-medium text-slate-600">
-                          Before
-                        </div>
-                        <div className="whitespace-pre-wrap text-xs text-slate-700 bg-slate-50 rounded p-2">
-                          {edit.before || "(empty)"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium text-slate-600">
-                          After
-                        </div>
-                        <div className="whitespace-pre-wrap text-xs text-slate-700 bg-slate-50 rounded p-2">
-                          {edit.after || "(empty)"}
-                        </div>
-                      </div>
-                    </div>
+                    <TextDiff before={edit.before} after={edit.after} />
                   </li>
                 ))}
             </ul>

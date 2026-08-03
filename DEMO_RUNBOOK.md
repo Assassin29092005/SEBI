@@ -50,13 +50,14 @@ alembic upgrade head)`) before re-registering demo accounts.
 
 | Metric | Value |
 |---|---|
-| Backend tests passing | not re-verified in this merge (no local Postgres in this environment — see CLAUDE.md § Commands); 248 test functions present as of this merge, run `pytest tests/ -q` locally to confirm |
+| Backend tests passing | 319 passed, 3 skipped (322 test functions total), `ruff check backend` clean — live-verified against a real Postgres instance in this merge |
 | Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
-| Reference filings benchmarked | 3 (public NSE Emerge DRHPs) |
+| Reference filings benchmarked | 4 (public NSE Emerge DRHPs, spanning two filing quarters and sectors) |
 | Chapter map vs. Harit Industries Ltd | 100% (31/31 in-scope) |
 | Chapter map vs. Qualiance International Ltd | 100% (31/31 in-scope) |
 | Chapter map vs. Smartdata Enterprises (India) Ltd | 100% (31/31 in-scope) |
+| Chapter map vs. Shanti Inorganics Ltd (Sept 2025 filing) | 100% (30/30 in-scope) |
 
 v0.4.0 closed the last six un-encoded chapters (conventions/presentation,
 forward-looking statements, key industry regulations, foreign-ownership
@@ -145,12 +146,27 @@ contradiction is a *data* problem, not a wording problem — the loop
 recognises that (`no_revisable_objections`) and stops rather than pretending
 a rewrite fixed it; only a corrected or new fact resolves those.
 
+### 6b. Suggested fixes + version diffing (optional, 30 s)
+Expand Validation → **Suggested fixes**. Under the planted contradiction it
+names the exact reconciling amount for the arithmetic finding, straight from
+the numbers the arithmetic checker already computed — never a guessed
+figure. Then point at the banker dashboard's audit trail: every recorded
+edit now renders as a word-level diff (additions/deletions highlighted)
+instead of two separate blocks of full text, and the iterative-examiner
+panel above shows the same diff for any section it revised. "Same principle
+as the hallucination guard: nothing here is invented, it's arithmetic and
+text comparison over data the system already produced."
+
 ### 7. Side-by-side vs. filed DRHPs (90 s)
-Expand **Benchmark vs filed DRHPs**. Tab through the three real NSE Emerge
-filings. Each shows chapter-by-chapter mapping: green chips = mapped
-checklist entries, gray = auditor content out of scope (amber would mark any
-chapter not yet encoded — as of v0.4.0 there are none). "100% in-scope match
-across three independent real filings. Not a claim — measured evidence."
+Expand **Benchmark vs filed DRHPs**. Tab through the four real NSE Emerge
+filings — three from March 2026, plus a fourth (Shanti Inorganics, an
+industrial-chemicals SME) filed September 2025, deliberately a different
+quarter and sector so the benchmark isn't just one company's conventions
+repeated three times. Each shows chapter-by-chapter mapping: green chips =
+mapped checklist entries, gray = auditor content out of scope (amber would
+mark any chapter not yet encoded — as of v0.4.0 there are none). "100%
+in-scope match across four independent real filings. Not a claim — measured
+evidence."
 
 ### 8. Sign out → sign in as Merchant Banker (30 s)
 Sign out, sign in with the banker account registered during pre-flight. Nav
