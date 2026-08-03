@@ -36,6 +36,22 @@ class Provenance(BaseModel):
     # or two from a filed document, so the cap is generous, not tight.
     snippet: str | None = Field(default=None, max_length=5000)
     supersedes: str | None = None    # fact_id of the version this one corrects
+    # Links back to the archived original in app.intake.vault (see
+    # ArchivedDocumentMeta) so a reviewer can open the real source document
+    # instead of trusting detail/snippet as bare text — the inline
+    # document-viewer feature. None for anything not sourced from an upload
+    # (wizard answers, lookups) or when archiving failed (best-effort, see
+    # app.main's uploads_extract).
+    document_id: str | None = Field(default=None, max_length=64)
+    # 1-indexed page within that document the snippet was found on. None
+    # alongside document_id, or for a single-page source (e.g. a standalone
+    # image upload) where "page" isn't a separately meaningful concept.
+    page: int | None = Field(default=None, ge=1)
+    # The archived document's own filename — kept alongside document_id
+    # (rather than parsed back out of detail's "filename p.N" convention) so
+    # the frontend can pick a PDF/image/text rendering path without string
+    # surgery on a field meant for human display.
+    source_file: str | None = Field(default=None, max_length=255)
 
 
 class Fact(BaseModel, frozen=True):

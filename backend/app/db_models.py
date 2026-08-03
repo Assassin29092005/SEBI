@@ -60,6 +60,9 @@ class FactRow(SQLModel, table=True):
     provenance_supersedes: str | None = Field(
         default=None, foreign_key="facts.fact_id", index=True
     )
+    provenance_document_id: str | None = None
+    provenance_page: int | None = None
+    provenance_source_file: str | None = None
     confidence: float
     confirmed: bool = Field(default=False, index=True)
     supplied_by: str

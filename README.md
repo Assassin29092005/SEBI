@@ -32,7 +32,12 @@ banker certification → exchange-ready package**. The tool:
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
 - Extracts facts from uploads, gates every value on promoter confirmation,
-  and refuses to feed unconfirmed data into generation.
+  and refuses to feed unconfirmed data into generation. Confirming a fact
+  means seeing the real source, not a bare quoted string: an inline viewer
+  renders the actual PDF page with the extracted snippet highlighted (real
+  pixel highlighting via PyMuPDF where the page has a native text layer),
+  shows an image upload directly, or highlights the exact substring in a
+  `.txt` source's raw text.
 - The wizard saves and resumes across sessions: every already-saved or
   confirmed answer rehydrates from the fact store on load instead of
   starting blank, and unsaved-but-typed text survives a closed tab via a

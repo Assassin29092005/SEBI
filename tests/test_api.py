@@ -41,6 +41,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+import fitz
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -398,6 +399,127 @@ async def test_upload_is_archived_and_downloadable(fresh_app: AsyncClient) -> No
 async def test_download_unknown_document_returns_404(fresh_app: AsyncClient) -> None:
     resp = await fresh_app.get("/api/uploads/no-such-document-id")
     assert resp.status_code == 404
+
+
+def _make_pdf_bytes(text: str, width: float = 400, height: float = 200) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page(width=width, height=height)
+    page.insert_text((20, 40), text)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
+async def test_uploads_extract_proposals_carry_document_id(fresh_app: AsyncClient) -> None:
+    """The inline-document-viewer link: every proposal's document_id matches
+    the archived upload it was extracted from, not a stray/absent id."""
+    body = b"Issue Size: Rs 14.00 crore\n"
+    extract_resp = await fresh_app.post(
+        "/api/uploads/extract",
+        files={"file": ("prospectus.txt", body, "text/plain")},
+    )
+    proposals = extract_resp.json()
+    assert proposals, "expected at least one proposal"
+
+    listed = (await fresh_app.get("/api/uploads")).json()
+    assert len(listed) == 1
+    archived_id = listed[0]["document_id"]
+
+    assert all(p["document_id"] == archived_id for p in proposals)
+
+
+async def test_document_page_image_returns_highlighted_png_for_a_real_pdf(
+    fresh_app: AsyncClient,
+) -> None:
+    pdf_bytes = _make_pdf_bytes("Issue Size: Rs 14.00 crore")
+    extract_resp = await fresh_app.post(
+        "/api/uploads/extract",
+        files={"file": ("bank_sanction_letter.pdf", pdf_bytes, "application/pdf")},
+    )
+    proposals = extract_resp.json()
+    issue_size = next(p for p in proposals if p["fact_key"] == "issue_size_paise")
+    document_id, page, snippet = issue_size["document_id"], issue_size["page"], issue_size["snippet"]
+
+    plain = await fresh_app.get(f"/api/uploads/{document_id}/page/{page}")
+    assert plain.status_code == 200, plain.text
+    assert plain.headers["content-type"] == "image/png"
+
+    highlighted = await fresh_app.get(
+        f"/api/uploads/{document_id}/page/{page}", params={"snippet": snippet}
+    )
+    assert highlighted.status_code == 200, highlighted.text
+    assert highlighted.headers["content-type"] == "image/png"
+    # The highlight annotation actually changed the rendered pixels.
+    assert highlighted.content != plain.content
+
+
+async def test_document_page_image_rejects_non_pdf_upload(fresh_app: AsyncClient) -> None:
+    body = b"Issue Size: Rs 14.00 crore\n"
+    extract_resp = await fresh_app.post(
+        "/api/uploads/extract",
+        files={"file": ("prospectus.txt", body, "text/plain")},
+    )
+    document_id = extract_resp.json()[0]["document_id"]
+
+    resp = await fresh_app.get(f"/api/uploads/{document_id}/page/1")
+    assert resp.status_code == 400
+
+
+async def test_document_page_image_unknown_document_returns_404(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/uploads/no-such-document-id/page/1")
+    assert resp.status_code == 404
+
+
+async def test_document_page_image_out_of_range_page_returns_404(fresh_app: AsyncClient) -> None:
+    pdf_bytes = _make_pdf_bytes("one page only")
+    extract_resp = await fresh_app.post(
+        "/api/uploads/extract",
+        files={"file": ("single_page.pdf", pdf_bytes, "application/pdf")},
+    )
+    listed = (await fresh_app.get("/api/uploads")).json()
+    document_id = next(d["document_id"] for d in listed if d["filename"] == "single_page.pdf")
+    _ = extract_resp
+
+    resp = await fresh_app.get(f"/api/uploads/{document_id}/page/99")
+    assert resp.status_code == 404
+
+
+async def test_document_page_image_zero_page_returns_400(fresh_app: AsyncClient) -> None:
+    pdf_bytes = _make_pdf_bytes("one page only")
+    await fresh_app.post(
+        "/api/uploads/extract",
+        files={"file": ("single_page2.pdf", pdf_bytes, "application/pdf")},
+    )
+    listed = (await fresh_app.get("/api/uploads")).json()
+    document_id = next(d["document_id"] for d in listed if d["filename"] == "single_page2.pdf")
+
+    resp = await fresh_app.get(f"/api/uploads/{document_id}/page/0")
+    assert resp.status_code == 400
+
+
+async def test_full_round_trip_confirmed_fact_carries_document_id_page_source_file(
+    fresh_app: AsyncClient,
+) -> None:
+    """Proposal -> accept -> confirm -> GET /api/facts: the inline-viewer
+    link survives the whole pipeline, not just the initial proposal."""
+    pdf_bytes = _make_pdf_bytes("Issue Size: Rs 14.00 crore")
+    extract_resp = await fresh_app.post(
+        "/api/uploads/extract",
+        files={"file": ("bank_sanction_letter.pdf", pdf_bytes, "application/pdf")},
+    )
+    proposal = next(
+        p for p in extract_resp.json() if p["fact_key"] == "issue_size_paise"
+    )
+
+    accepted = await fresh_app.post("/api/proposals/accept", json=proposal)
+    fact_id = accepted.json()["fact_id"]
+    await fresh_app.post(f"/api/facts/{fact_id}/confirm")
+
+    facts = (await fresh_app.get("/api/facts")).json()
+    fact = next(f for f in facts if f["fact_id"] == fact_id)
+    assert fact["provenance"]["document_id"] == proposal["document_id"]
+    assert fact["provenance"]["page"] == proposal["page"]
+    assert fact["provenance"]["source_file"] == "bank_sanction_letter.pdf"
 
 
 async def test_proposals_accept_creates_unconfirmed_fact(fresh_app: AsyncClient) -> None:

@@ -21,6 +21,7 @@ from app.intake.ocr import (
     ocr_image,
     ocr_image_bytes,
     render_pdf_page_to_image,
+    render_pdf_page_with_highlight,
 )
 
 
@@ -116,6 +117,60 @@ def test_render_pdf_page_to_image_returns_a_real_pil_image() -> None:
     image = render_pdf_page_to_image(pdf_bytes, page_index=0)
     assert isinstance(image, Image.Image)
     assert image.mode in ("RGB", "RGBA", "L")
+
+
+# --------------------------------------------------------------------------
+# Highlighted page rendering (inline document viewer — app.main's
+# GET /api/uploads/{document_id}/page/{page_number})
+# --------------------------------------------------------------------------
+
+
+def test_highlight_is_actually_drawn_when_snippet_is_found() -> None:
+    pdf_bytes = _make_pdf_bytes(width=300, height=150, text="Issue Size: Rs 14.00 crore")
+    plain = render_pdf_page_with_highlight(pdf_bytes, page_index=0, snippet=None)
+    highlighted = render_pdf_page_with_highlight(
+        pdf_bytes, page_index=0, snippet="Issue Size: Rs 14.00 crore"
+    )
+    assert plain != highlighted
+    assert Image.open(io.BytesIO(highlighted)).format == "PNG"
+
+
+def test_snippet_not_on_the_page_renders_plainly_without_crashing() -> None:
+    pdf_bytes = _make_pdf_bytes(width=300, height=150, text="Issue Size: Rs 14.00 crore")
+    plain = render_pdf_page_with_highlight(pdf_bytes, page_index=0, snippet=None)
+    # A snippet genuinely absent from this page's text layer (e.g. one that
+    # actually came from OCR on a *different*, scanned page) must not raise
+    # — search_for simply finds nothing, so the highlight pass is a no-op.
+    no_match = render_pdf_page_with_highlight(
+        pdf_bytes, page_index=0, snippet="this text is not on the page at all"
+    )
+    assert plain == no_match
+
+
+def test_empty_snippet_is_treated_the_same_as_none() -> None:
+    pdf_bytes = _make_pdf_bytes(width=300, height=150, text="Issue Size: Rs 14.00 crore")
+    plain = render_pdf_page_with_highlight(pdf_bytes, page_index=0, snippet=None)
+    empty = render_pdf_page_with_highlight(pdf_bytes, page_index=0, snippet="")
+    assert plain == empty
+
+
+def test_out_of_range_page_raises_index_error_not_something_uncaught() -> None:
+    pdf_bytes = _make_pdf_bytes(width=200, height=100, text="one page only")
+    with pytest.raises(IndexError):
+        render_pdf_page_with_highlight(pdf_bytes, page_index=5, snippet=None)
+    with pytest.raises(IndexError):
+        render_pdf_page_with_highlight(pdf_bytes, page_index=-1, snippet=None)
+
+
+def test_highlighted_render_returns_raw_png_bytes() -> None:
+    pdf_bytes = _make_pdf_bytes(width=200, height=100, text="hello")
+    result = render_pdf_page_with_highlight(pdf_bytes, page_index=0, snippet="hello")
+    assert isinstance(result, bytes)
+    image = Image.open(io.BytesIO(result))
+    assert image.format == "PNG"
+    expected_w, expected_h = 200 * 300 / 72, 100 * 300 / 72
+    assert abs(image.size[0] - expected_w) <= 2
+    assert abs(image.size[1] - expected_h) <= 2
 
 
 # --------------------------------------------------------------------------
