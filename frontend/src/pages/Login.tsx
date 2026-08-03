@@ -168,7 +168,10 @@ export default function Login() {
             )}
 
             {error && (
-              <div className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800">
+              <div
+                role="alert"
+                className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800"
+              >
                 {error}
               </div>
             )}
@@ -177,7 +180,7 @@ export default function Login() {
               type="submit"
               disabled={busy}
               className={
-                "w-full rounded px-4 py-2 text-sm font-medium text-white " +
+                "w-full rounded px-4 py-2.5 text-sm font-medium text-white " +
                 (busy ? "bg-blue-400 cursor-not-allowed" : "bg-blue-700 hover:bg-blue-800")
               }
             >

@@ -14,6 +14,7 @@ import {
   getSectionTranslation,
   getSections,
   getSemantic,
+  getSuggestions,
   postExaminerIterative,
   postGenerate,
   type ArithmeticFinding,
@@ -30,9 +31,11 @@ import {
   type ReferenceBenchmark,
   type Role,
   type Severity,
+  type SuggestedFix,
   type TranslatedSection,
 } from "../api/client";
 import DocumentSnippetViewer from "../components/DocumentSnippetViewer";
+import TextDiff from "../components/TextDiff";
 
 // --------------------------------------------------------------------------
 // Small helpers
@@ -510,7 +513,30 @@ const STOP_REASON_COPY: Record<IterativeExaminationReport["stop_reason"], string
   max_rounds_reached: "Stopped: hit the round budget with objections still open.",
 };
 
-function IterativeExaminationPanel({ report }: { report: IterativeExaminationReport }) {
+function IterativeExaminationPanel({
+  report,
+  preRevisionText,
+}: {
+  report: IterativeExaminationReport;
+  preRevisionText: Map<string, string>;
+}) {
+  const finalTextById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of report.final_sections) m.set(s.entry_id, s.text);
+    return m;
+  }, [report.final_sections]);
+
+  // Union of every entry_id revised across any round — a section revised in
+  // round 1 and again in round 2 still shows one before(original) -> after
+  // (final) diff, not a misleading per-round intermediate.
+  const revisedEntryIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of report.rounds) {
+      for (const id of r.revised_entry_ids) ids.add(id);
+    }
+    return Array.from(ids);
+  }, [report.rounds]);
+
   return (
     <div className="space-y-3">
       <div
@@ -536,6 +562,26 @@ function IterativeExaminationPanel({ report }: { report: IterativeExaminationRep
           </li>
         ))}
       </ul>
+      {revisedEntryIds.length > 0 ? (
+        <div>
+          <div className="text-xs font-medium text-gray-700 mb-1">
+            Revised sections (before the loop → final text):
+          </div>
+          <ul className="space-y-2">
+            {revisedEntryIds.map((id) => {
+              const before = preRevisionText.get(id);
+              const after = finalTextById.get(id);
+              if (before === undefined || after === undefined) return null;
+              return (
+                <li key={id} className="border border-gray-200 rounded bg-white p-2">
+                  <div className="font-mono text-xs text-gray-500 mb-1">{id}</div>
+                  <TextDiff before={before} after={after} />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
       <div>
         <div className="text-xs font-medium text-gray-700 mb-1">
           Objections after the final round:
@@ -675,6 +721,74 @@ function ArithmeticList({ items }: { items: ArithmeticFinding[] }) {
           <div className="text-gray-800">{f.detail}</div>
         </li>
       ))}
+    </ul>
+  );
+}
+
+// Label + color per suggestion category, matching the categories
+// app.validate.suggestions.SuggestionCategory computes.
+const SUGGESTION_CATEGORY_LABEL: Record<SuggestedFix["category"], string> = {
+  arithmetic: "Arithmetic",
+  low_confidence_extraction: "Low-confidence extraction",
+  boilerplate: "Boilerplate",
+};
+
+/**
+ * Auto-suggested fixes (see app.validate.suggestions): concrete remediation
+ * computed from validator output, never an invented fact or number. A
+ * low-confidence-extraction suggestion carries a jump-to-source target
+ * (reusing the same DocumentSnippetViewer as the fact-confirmation and
+ * citation-review flows); a boilerplate suggestion points at the iterative
+ * examiner button already on this page rather than duplicating its logic.
+ */
+function SuggestionsList({
+  items,
+  factsById,
+  onJumpToExaminer,
+}: {
+  items: SuggestedFix[];
+  factsById: Map<string, Fact>;
+  onJumpToExaminer: () => void;
+}) {
+  if (items.length === 0) {
+    return <p className="text-sm text-green-700">No suggested fixes right now.</p>;
+  }
+  return (
+    <ul className="space-y-2">
+      {items.map((s, i) => {
+        const fact = s.fact_id ? factsById.get(s.fact_id) : undefined;
+        return (
+          <li
+            key={`${s.entry_id}-${s.category}-${i}`}
+            className="border border-amber-200 rounded bg-amber-50 p-3 text-sm"
+          >
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-900 text-xs font-medium">
+                {SUGGESTION_CATEGORY_LABEL[s.category]}
+              </span>
+              <span className="font-mono text-xs text-gray-500">{s.entry_id}</span>
+            </div>
+            <div className="text-gray-800">{s.message}</div>
+            {s.category === "low_confidence_extraction" && fact ? (
+              <DocumentSnippetViewer
+                documentId={fact.provenance.document_id}
+                sourceFile={fact.provenance.source_file ?? ""}
+                page={fact.provenance.page}
+                snippet={fact.provenance.snippet ?? ""}
+              />
+            ) : null}
+            {s.category === "boilerplate" ? (
+              <button
+                type="button"
+                className="mt-2 text-xs text-blue-700 hover:underline font-medium"
+                onClick={onJumpToExaminer}
+              >
+                Go to iterative examiner
+              </button>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -850,7 +964,7 @@ function BenchmarkPanel({
                   not yet encoded
                 </span>
               ) : null}
-              {ch.note ? <span className="w-full text-xs text-gray-400 italic">{ch.note}</span> : null}
+              {ch.note ? <span className="w-full text-xs text-gray-500 italic">{ch.note}</span> : null}
             </div>
           </div>
         ))}
@@ -938,12 +1052,20 @@ export default function DraftViewer() {
   );
   const [iterativeState, setIterativeState] = useState<LoadState>("idle");
   const [iterativeError, setIterativeError] = useState<string | null>(null);
+  // Snapshot of each section's text right before the iterative-examiner
+  // loop runs, so the panel can diff it against final_sections afterward —
+  // final_sections alone has no memory of what a revised entry looked like
+  // pre-revision.
+  const [preRevisionText, setPreRevisionText] = useState<Map<string, string>>(new Map());
 
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [coverageState, setCoverageState] = useState<LoadState>("idle");
 
   const [arithmetic, setArithmetic] = useState<ArithmeticFinding[] | null>(null);
   const [arithmeticState, setArithmeticState] = useState<LoadState>("idle");
+
+  const [suggestions, setSuggestions] = useState<SuggestedFix[] | null>(null);
+  const [suggestionsState, setSuggestionsState] = useState<LoadState>("idle");
 
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
   const [gapsState, setGapsState] = useState<LoadState>("idle");
@@ -1107,6 +1229,9 @@ export default function DraftViewer() {
   const runIterativeExaminer = async () => {
     setIterativeState("loading");
     setIterativeError(null);
+    const snapshot = new Map<string, string>();
+    for (const s of sections) snapshot.set(s.entry_id, s.text);
+    setPreRevisionText(snapshot);
     try {
       const report = await postExaminerIterative();
       setIterativeReport(report);
@@ -1128,6 +1253,17 @@ export default function DraftViewer() {
       setArithmeticState("ready");
     } catch {
       setArithmeticState("error");
+    }
+  }, []);
+
+  const runSuggestions = useCallback(async () => {
+    setSuggestionsState("loading");
+    try {
+      const data = await getSuggestions();
+      setSuggestions(data);
+      setSuggestionsState("ready");
+    } catch {
+      setSuggestionsState("error");
     }
   }, []);
 
@@ -1162,7 +1298,8 @@ export default function DraftViewer() {
     void loadGaps();
     void runContradictions();
     void runArithmetic();
-  }, [sections, loadGaps, runContradictions, runArithmetic]);
+    void runSuggestions();
+  }, [sections, loadGaps, runContradictions, runArithmetic, runSuggestions]);
 
   // Smooth-scroll to a detail target after the render that (possibly) opened it.
   useEffect(() => {
@@ -1213,6 +1350,7 @@ export default function DraftViewer() {
   const gapCount = gapReport ? gapReport.gaps.length : null;
   const contradictionCount = contradictions ? contradictions.length : null;
   const arithmeticCount = arithmetic ? arithmetic.length : null;
+  const suggestionsCount = suggestions ? suggestions.length : null;
 
   // "…" while a count is still loading, "—" if its endpoint failed.
   const tileValue = (count: number | null, state: LoadState): string =>
@@ -1295,7 +1433,7 @@ export default function DraftViewer() {
       </div>
 
       {sections.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
           <MetricTile
             label="Sections generated"
             value={tileValue(sections.length, sectionsState)}
@@ -1327,6 +1465,13 @@ export default function DraftViewer() {
             hint="objects vs. issue size"
             tone={arithmeticCount === null ? "neutral" : arithmeticCount === 0 ? "green" : "amber"}
             onClick={() => openValidationAt("panel-arithmetic")}
+          />
+          <MetricTile
+            label="Suggested fixes"
+            value={tileValue(suggestionsCount, suggestionsState)}
+            hint="computed, never invented"
+            tone={suggestionsCount === null ? "neutral" : suggestionsCount === 0 ? "green" : "amber"}
+            onClick={() => openValidationAt("panel-suggestions")}
           />
         </div>
       ) : null}
@@ -1445,6 +1590,27 @@ export default function DraftViewer() {
             </button>
             {validationOpen ? (
               <div className="px-4 pb-4 space-y-4">
+                <div id="panel-suggestions">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runSuggestions}
+                      disabled={suggestionsState === "loading"}
+                    >
+                      {suggestionsState === "loading" ? "Computing…" : "Suggested fixes"}
+                    </button>
+                    <StatusPill state={suggestionsState} label="suggestions" />
+                  </div>
+                  {suggestions !== null ? (
+                    <SuggestionsList
+                      items={suggestions}
+                      factsById={factsById}
+                      onJumpToExaminer={() => openValidationAt("panel-iterative-examiner")}
+                    />
+                  ) : null}
+                </div>
+
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     <button
@@ -1562,7 +1728,10 @@ export default function DraftViewer() {
                     <p className="text-xs text-red-600 mb-2">{iterativeError}</p>
                   ) : null}
                   {iterativeReport !== null ? (
-                    <IterativeExaminationPanel report={iterativeReport} />
+                    <IterativeExaminationPanel
+                      report={iterativeReport}
+                      preRevisionText={preRevisionText}
+                    />
                   ) : (
                     <p className="text-xs text-gray-500">
                       Revises sections carrying a fixable objection (boilerplate, reviewer

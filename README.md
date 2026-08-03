@@ -31,6 +31,12 @@ banker certification → exchange-ready package**. The tool:
   caught someone else's extraction error (see `backend/app/extraction_reliability.py`).
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
+- The pinned regulation date doesn't just sit there: a regulatory-staleness
+  watcher (`backend/app/regulatory_watch.py`) really scrapes SEBI's public
+  site for anything ICDR-tagged newer than the pin — weekly via a scheduled
+  GitHub Actions workflow, or on demand from the Banker Dashboard — and
+  flags it for human review rather than auto-updating the schema. A demo
+  checks the pin once; production doesn't get that luxury.
 - Extracts facts from uploads, gates every value on promoter confirmation,
   and refuses to feed unconfirmed data into generation. Confirming a fact
   means seeing the real source, not a bare quoted string: an inline viewer
@@ -62,13 +68,28 @@ banker certification → exchange-ready package**. The tool:
   facts, contradictions, and arithmetic mismatches are recognised as data
   problems no rewrite can fix, so the loop stops honestly instead of
   spinning (`backend/app/validate/iterative_examiner.py`).
+- Auto-suggested fixes turn validator output into a concrete next action —
+  the exact reconciling paise amount for an arithmetic finding, a
+  jump-to-source link for a low-confidence extraction, a pointer at the
+  iterative examiner for boilerplate — without ever inventing a fact or a
+  number (`backend/app/validate/suggestions.py`).
+- Draft version diffing: a stateless, stdlib-only word-level diff (numbers
+  stay atomic — `"12.50"` never fragments into three tokens at the `.`) over
+  any two text snapshots, reused for both the banker-edit audit trail and the
+  iterative examiner's before/after (`backend/app/diffing.py`).
 - Locks export behind a per-section certification workflow so the merchant
   banker stays in the loop.
+- Works on a phone, not just a laptop: the nav collapses to a mobile menu,
+  every input keeps a visible keyboard-focus ring (WCAG 2.4.7), and text
+  colors are checked against the WCAG AA 4.5:1 contrast floor rather than
+  eyeballed — a real SME promoter fills this out on whatever device they
+  have, between other work.
 - Assembles the DRHP and the draft abridged prospectus (Sch. VI Part E per
   Reg. 246(3)) as `.docx` and bundles the full audit trail as a `.zip`.
 
-Benchmarked against three real filed NSE Emerge SME DRHPs: 100% in-scope
-chapter match on every one (auditor-only chapters explicitly out of scope).
+Benchmarked against four real filed NSE Emerge SME DRHPs, spanning two
+filing quarters and sectors: 100% in-scope chapter match on every one
+(auditor-only chapters explicitly out of scope).
 
 ## Repo layout
 
@@ -77,15 +98,15 @@ chapter match on every one (auditor-only chapters explicitly out of scope).
 - `frontend/` — React 18 + TypeScript + Tailwind. Vite dev server proxies
   `/api` to `127.0.0.1:8000`.
 - `data/regulation/` — pinned ICDR text and amendment manifest.
-- `data/reference_drhps/` — three public NSE Emerge filings + hand-mapped
-  chapter YAMLs for the benchmark.
+- `data/reference_drhps/` — four public NSE Emerge filings (two filing
+  quarters, two sectors) + hand-mapped chapter YAMLs for the benchmark.
 - `data/demo_company/` — synthetic issuer *Sunrise Agrotech Ltd* with a
   deliberately planted `issue_size_paise` contradiction for the live demo.
 - `data/uploads/`, `data/audit/` — encrypted-at-rest archives of original
   source uploads and the access-log audit trail respectively (gitignored;
   see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
   and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 248 backend test functions (needs a running Postgres — see below).
+- `tests/` — 322 backend test functions (needs a running Postgres — see below).
 
 ## Run it
 

@@ -38,6 +38,7 @@ import io
 import json
 import zipfile
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -670,6 +671,67 @@ async def test_validate_arithmetic_returns_findings_list(fresh_app: AsyncClient)
         assert {"kind", "detail", "severity"} <= set(finding)
 
 
+async def test_suggestions_returns_empty_list_over_an_empty_store(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/suggestions")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+async def test_suggestions_surfaces_a_concrete_arithmetic_remediation(
+    fresh_app: AsyncClient,
+) -> None:
+    """Seeds a real GCP-cap breach (15% of a Rs 12.5 cr issue = Rs 1.875 cr;
+    GCP set to Rs 2 cr) and confirms /api/suggestions computes the exact
+    reconciling amount from the arithmetic finding, not a made-up one."""
+    await _seed_fact(fresh_app, key="issue_size_paise", value=12_500_000_000, detail="q:issue_size")
+    await _seed_fact(
+        fresh_app,
+        key="objects_of_issue[]",
+        value=[{"purpose": "Working capital", "amount_paise": 8_000_000_000, "deployment_schedule": "FY2027"}],
+        detail="q:objects",
+    )
+    await _seed_fact(fresh_app, key="gcp_amount_paise", value=2_000_000_000, detail="q:gcp")
+
+    arithmetic = (await fresh_app.get("/api/validate/arithmetic")).json()
+    breach = next(f for f in arithmetic if f["kind"] == "gcp_cap_breach")
+    # 8cr objects + 2cr GCP = 10cr allocated against a 12.5cr issue also
+    # leaves a real unallocated-proceeds finding (2.5cr, 20% > the 5%
+    # tolerance) — both are genuine, expected findings for these numbers.
+    assert len(arithmetic) == 2
+
+    suggestions = (await fresh_app.get("/api/suggestions")).json()
+    arithmetic_suggestions = [s for s in suggestions if s["category"] == "arithmetic"]
+    assert len(arithmetic_suggestions) == 2
+    gcp_suggestion = next(s for s in arithmetic_suggestions if "GCP" in s["message"])
+    assert str(breach["expected_paise"]) in gcp_suggestion["message"]
+
+
+async def test_diff_endpoint_returns_word_level_segments(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.post(
+        "/api/diff",
+        json={
+            "before": "Issue size: Rs 12.50 crore.",
+            "after": "Issue size: Rs 14.00 crore.",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    segments = resp.json()
+    kinds = [s["kind"] for s in segments]
+    assert kinds == ["equal", "delete", "insert", "equal"]
+    assert segments[1]["text"] == "12.50"
+    assert segments[2]["text"] == "14.00"
+
+
+async def test_diff_endpoint_identical_text_is_one_equal_segment(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.post(
+        "/api/diff", json={"before": "Same text.", "after": "Same text."}
+    )
+    assert resp.status_code == 200, resp.text
+    segments = resp.json()
+    assert len(segments) == 1
+    assert segments[0]["kind"] == "equal"
+
+
 async def test_coverage_and_gaps(fresh_app: AsyncClient) -> None:
     await fresh_app.post("/api/generate")
     cov = (await fresh_app.get("/api/coverage")).json()
@@ -1207,3 +1269,96 @@ async def test_audit_log_excludes_health_check(
     await fresh_app.get("/api/health")
     events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
     assert not any(e["path"] == "/api/health" for e in events)
+
+
+# --------------------------------------------------------------------------
+# Regulatory staleness watcher (see app.regulatory_watch) — the real
+# connector is swapped for a fake one via monkeypatch so the standard suite
+# never hits the live network; test_regulatory_watch.py has the one real,
+# self-skipping live-network test.
+# --------------------------------------------------------------------------
+
+
+class _FakeRegulatoryWatchConnector:
+    def __init__(self, updates: list[Any]) -> None:
+        self._updates = updates
+
+    async def check_for_updates(self, since: Any) -> list[Any]:
+        return [u for u in self._updates if u.published > since]
+
+
+async def test_regulatory_watch_check_is_banker_only(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.post("/api/regulatory-watch/check")
+    assert resp.status_code == 403
+
+
+async def test_regulatory_watch_status_is_banker_only(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/regulatory-watch/status")
+    assert resp.status_code == 403
+
+
+async def test_regulatory_watch_status_before_any_check_is_null(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    resp = await fresh_app.get("/api/regulatory-watch/status", headers=banker_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() is None
+
+
+async def test_regulatory_watch_check_clean_when_nothing_newer(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module.runtime_cache, "regulatory_watch_connector", _FakeRegulatoryWatchConnector([]))
+    resp = await fresh_app.post("/api/regulatory-watch/check", headers=banker_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["checked_successfully"] is True
+    assert body["newer_updates"] == []
+    assert body["pinned_amended_through"] == main_module.checklist.header.amended_through
+
+
+async def test_regulatory_watch_check_and_status_round_trip(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.regulatory_watch import RegulatoryUpdate
+
+    future_update = RegulatoryUpdate(
+        title="Consultation Paper on certain Amendments to SEBI (ICDR) Regulations, 2018",
+        published=date(2099, 1, 1),
+        url="https://www.sebi.gov.in/reports/example.html",
+    )
+    monkeypatch.setattr(
+        main_module.runtime_cache,
+        "regulatory_watch_connector",
+        _FakeRegulatoryWatchConnector([future_update]),
+    )
+    checked = await fresh_app.post("/api/regulatory-watch/check", headers=banker_headers)
+    assert checked.status_code == 200, checked.text
+    checked_body = checked.json()
+    assert checked_body["checked_successfully"] is True
+    assert len(checked_body["newer_updates"]) == 1
+    assert checked_body["newer_updates"][0]["title"] == future_update.title
+
+    # The check's result is cached — a subsequent status read (no new
+    # network call) returns exactly what was just found.
+    status = await fresh_app.get("/api/regulatory-watch/status", headers=banker_headers)
+    assert status.status_code == 200, status.text
+    assert status.json() == checked_body
+
+
+async def test_regulatory_watch_check_honestly_degrades_on_connector_failure(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.regulatory_watch import RegulatoryWatchUnavailable
+
+    class _FailingConnector:
+        async def check_for_updates(self, since: Any) -> list[Any]:
+            raise RegulatoryWatchUnavailable("simulated network failure")
+
+    monkeypatch.setattr(main_module.runtime_cache, "regulatory_watch_connector", _FailingConnector())
+    resp = await fresh_app.post("/api/regulatory-watch/check", headers=banker_headers)
+    assert resp.status_code == 200, resp.text  # a failed live check is not itself an API error
+    body = resp.json()
+    assert body["checked_successfully"] is False
+    assert body["newer_updates"] == []
+    assert body["source"] == "unavailable"

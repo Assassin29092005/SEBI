@@ -33,6 +33,7 @@ import logging
 import os
 import re
 import shutil
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -60,6 +61,7 @@ from app.auth.security import InvalidToken, decode_access_token
 from app.config import settings
 from app.coverage import BenchmarkReport, CoverageReport, benchmark, score
 from app.db import get_session
+from app.diffing import DiffSegment, compute_diff
 from app.eligibility import EligibilityInput, EligibilityReport, evaluate
 from app.extraction_reliability import ExtractionReliabilityReport, compute_reliability
 from app.facts import Fact, FactStore, Provenance
@@ -76,6 +78,7 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
+from app.regulatory_watch import StalenessCheckResult, check_for_staleness
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
@@ -92,6 +95,7 @@ from app.validate.contradictions import (
 from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
 from app.validate.iterative_examiner import IterativeExaminationReport, examine_iteratively
+from app.validate.suggestions import SuggestedFix, compute_suggested_fixes
 
 logger = logging.getLogger("drhp.main")
 
@@ -780,6 +784,43 @@ async def validate_examiner_iterative(
     return report
 
 
+@app.get("/api/suggestions")
+async def suggested_fixes(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[SuggestedFix]:
+    """Auto-suggested fixes over the cached draft (see app.validate.suggestions):
+    concrete, computed remediation for arithmetic findings, a jump-to-source
+    target for low-confidence cited extractions, and a pointer at the
+    iterative examiner for boilerplate. Never a new fact or number — every
+    suggestion is arithmetic on values validators already produced, or a
+    routing hint to a capability that already exists.
+    """
+    store = await facts_repo.load_fact_store(session)
+    sections = runtime_cache.get_generated_sections()
+    arithmetic = check_arithmetic(store)
+    boilerplate_flags = _current_boilerplate()
+    return compute_suggested_fixes(sections, store, arithmetic, boilerplate_flags)
+
+
+class DiffRequest(BaseModel):
+    before: str
+    after: str
+
+
+@app.post("/api/diff")
+async def diff_text(
+    req: DiffRequest, _user: User = Depends(get_current_user)
+) -> list[DiffSegment]:
+    """Word-level diff of any two text snapshots (see app.diffing) — draft
+    version diffing. Stateless: the caller supplies both sides (a banker
+    edit's before/after from the review audit trail, or a section's text
+    before/after an iterative-examiner revision round); nothing is stored
+    server-side beyond what already exists.
+    """
+    return compute_diff(req.before, req.after)
+
+
 # --------------------------------------------------------------------------
 # Coverage
 # --------------------------------------------------------------------------
@@ -1039,3 +1080,39 @@ async def extraction_reliability(
     """
     store = await facts_repo.load_fact_store(session)
     return compute_reliability(store)
+
+
+# --------------------------------------------------------------------------
+# Regulatory staleness watcher (see app.regulatory_watch)
+# --------------------------------------------------------------------------
+
+
+@app.post("/api/regulatory-watch/check")
+async def regulatory_watch_check(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> StalenessCheckResult:
+    """Check SEBI's public ICDR-tagged postings against the schema's pinned
+    ``amended_through`` date and cache the result.
+
+    Banker-only, same oversight rationale as the audit log / extraction
+    reliability above — this is a compliance-currency signal about the
+    tool itself, not draft content. Never auto-updates the schema (every
+    schema change is human-reviewed, per CLAUDE.md) — this only surfaces
+    "go check this," the same routing-not-automating philosophy as the gap
+    report. A real external HTTP call against SEBI's public site, so it is
+    explicitly triggered here rather than run on every page load — see
+    ``GET /api/regulatory-watch/status`` for the cached-read counterpart.
+    """
+    pinned = date.fromisoformat(checklist.header.amended_through)
+    result = await check_for_staleness(pinned, connector=runtime_cache.regulatory_watch_connector)
+    runtime_cache.set_last_staleness_check(result)
+    return result
+
+
+@app.get("/api/regulatory-watch/status")
+async def regulatory_watch_status(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> StalenessCheckResult | None:
+    """The last cached check result, or ``null`` if none has run yet this
+    process's lifetime — never triggers a fresh network call itself."""
+    return runtime_cache.get_last_staleness_check()

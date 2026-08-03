@@ -203,18 +203,22 @@ function BoolRow({
         risky ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-white"
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-800">{field.label}</p>
           <p className="mt-1 text-xs text-gray-500">{field.help}</p>
         </div>
-        <div className="flex shrink-0 gap-1" role="radiogroup" aria-label={field.label}>
+        <div
+          className="flex shrink-0 gap-2 sm:gap-1"
+          role="radiogroup"
+          aria-label={field.label}
+        >
           <button
             type="button"
             role="radio"
             aria-checked={value === true}
             onClick={() => onChange(true)}
-            className={`rounded-md px-3 py-1 text-sm font-medium ${
+            className={`min-h-[2.75rem] flex-1 rounded-md px-3 py-1 text-sm font-medium sm:min-h-0 sm:flex-none ${
               value === true
                 ? "bg-gray-900 text-white"
                 : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
@@ -227,7 +231,7 @@ function BoolRow({
             role="radio"
             aria-checked={value === false}
             onClick={() => onChange(false)}
-            className={`rounded-md px-3 py-1 text-sm font-medium ${
+            className={`min-h-[2.75rem] flex-1 rounded-md px-3 py-1 text-sm font-medium sm:min-h-0 sm:flex-none ${
               value === false
                 ? "bg-gray-900 text-white"
                 : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
@@ -430,7 +434,7 @@ export default function Eligibility() {
                 value={form.post_issue_paid_up_capital_rupees}
                 onChange={(e) => update("post_issue_paid_up_capital_rupees", e.target.value)}
                 placeholder="e.g. 30000000"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </FieldLabel>
 
@@ -444,7 +448,7 @@ export default function Eligibility() {
                 value={form.operating_profit_years}
                 onChange={(e) => update("operating_profit_years", e.target.value)}
                 placeholder="e.g. 2"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </FieldLabel>
 
@@ -456,7 +460,7 @@ export default function Eligibility() {
                 value={form.min_operating_profit_rupees}
                 onChange={(e) => update("min_operating_profit_rupees", e.target.value)}
                 placeholder="e.g. 100000"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </FieldLabel>
 
@@ -471,7 +475,7 @@ export default function Eligibility() {
                   value={form.ofs_pct_of_issue}
                   onChange={(e) => update("ofs_pct_of_issue", e.target.value)}
                   placeholder="e.g. 10"
-                  className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-sm focus:border-gray-500 focus:outline-none"
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-gray-500">
                   %

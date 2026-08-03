@@ -17,6 +17,19 @@ def test_reference_mappings_load_and_are_chapter_ix_filings() -> None:
         assert len(ref.chapters) >= 20  # a real DRHP TOC, not a stub file
 
 
+def test_benchmark_spans_more_than_one_filing_quarter_and_sector() -> None:
+    """One company/sector/quarter's filing conventions happening to match the
+    schema wouldn't rule out coincidence — the benchmark needs at least a
+    second, unrelated filing to mean anything as external evidence."""
+    references = load_reference_benchmarks()
+    quarters = {ref.filed[:7] for ref in references}  # "YYYY-MM"
+    assert len(quarters) >= 2, "benchmark should not rest on a single filing quarter"
+    shanti = next((r for r in references if "Shanti Inorganics" in r.company), None)
+    assert shanti is not None, "expected the Shanti Inorganics reference filing to be present"
+    assert shanti.filed == "2025-09-26"
+    assert shanti.exchange == "NSE Emerge"
+
+
 def test_every_maps_to_id_exists_in_checklist() -> None:
     """Stale mapping ids must fail loudly here, not silently inflate the score."""
     known_ids = {e.id for e in load_checklist().entries}
