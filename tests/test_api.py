@@ -624,6 +624,67 @@ async def test_validate_arithmetic_returns_findings_list(fresh_app: AsyncClient)
         assert {"kind", "detail", "severity"} <= set(finding)
 
 
+async def test_suggestions_returns_empty_list_over_an_empty_store(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/suggestions")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+async def test_suggestions_surfaces_a_concrete_arithmetic_remediation(
+    fresh_app: AsyncClient,
+) -> None:
+    """Seeds a real GCP-cap breach (15% of a Rs 12.5 cr issue = Rs 1.875 cr;
+    GCP set to Rs 2 cr) and confirms /api/suggestions computes the exact
+    reconciling amount from the arithmetic finding, not a made-up one."""
+    await _seed_fact(fresh_app, key="issue_size_paise", value=12_500_000_000, detail="q:issue_size")
+    await _seed_fact(
+        fresh_app,
+        key="objects_of_issue[]",
+        value=[{"purpose": "Working capital", "amount_paise": 8_000_000_000, "deployment_schedule": "FY2027"}],
+        detail="q:objects",
+    )
+    await _seed_fact(fresh_app, key="gcp_amount_paise", value=2_000_000_000, detail="q:gcp")
+
+    arithmetic = (await fresh_app.get("/api/validate/arithmetic")).json()
+    breach = next(f for f in arithmetic if f["kind"] == "gcp_cap_breach")
+    # 8cr objects + 2cr GCP = 10cr allocated against a 12.5cr issue also
+    # leaves a real unallocated-proceeds finding (2.5cr, 20% > the 5%
+    # tolerance) — both are genuine, expected findings for these numbers.
+    assert len(arithmetic) == 2
+
+    suggestions = (await fresh_app.get("/api/suggestions")).json()
+    arithmetic_suggestions = [s for s in suggestions if s["category"] == "arithmetic"]
+    assert len(arithmetic_suggestions) == 2
+    gcp_suggestion = next(s for s in arithmetic_suggestions if "GCP" in s["message"])
+    assert str(breach["expected_paise"]) in gcp_suggestion["message"]
+
+
+async def test_diff_endpoint_returns_word_level_segments(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.post(
+        "/api/diff",
+        json={
+            "before": "Issue size: Rs 12.50 crore.",
+            "after": "Issue size: Rs 14.00 crore.",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    segments = resp.json()
+    kinds = [s["kind"] for s in segments]
+    assert kinds == ["equal", "delete", "insert", "equal"]
+    assert segments[1]["text"] == "12.50"
+    assert segments[2]["text"] == "14.00"
+
+
+async def test_diff_endpoint_identical_text_is_one_equal_segment(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.post(
+        "/api/diff", json={"before": "Same text.", "after": "Same text."}
+    )
+    assert resp.status_code == 200, resp.text
+    segments = resp.json()
+    assert len(segments) == 1
+    assert segments[0]["kind"] == "equal"
+
+
 async def test_coverage_and_gaps(fresh_app: AsyncClient) -> None:
     await fresh_app.post("/api/generate")
     cov = (await fresh_app.get("/api/coverage")).json()

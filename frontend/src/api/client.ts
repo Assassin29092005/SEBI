@@ -653,6 +653,32 @@ export const getBenchmark: () => Promise<BenchmarkReport> = getCoverageBenchmark
 // Gaps
 export const getGaps = (): Promise<GapReport> => apiGet<GapReport>("/api/gaps");
 
+// Auto-suggested fixes (backend/app/validate/suggestions.py) — concrete,
+// computed remediation over validator output; never a new fact or number.
+export interface SuggestedFix {
+  entry_id: string;
+  category: "arithmetic" | "low_confidence_extraction" | "boilerplate";
+  message: string;
+  fact_id: string | null;
+  document_id: string | null;
+  page: number | null;
+}
+
+export const getSuggestions = (): Promise<SuggestedFix[]> =>
+  apiGet<SuggestedFix[]>("/api/suggestions");
+
+// Draft version diffing (backend/app/diffing.py) — stateless word-level
+// diff of any two text snapshots the caller already has (a banker edit's
+// before/after, or a section's text before/after an iterative-examiner
+// revision round).
+export interface DiffSegment {
+  text: string;
+  kind: "equal" | "insert" | "delete";
+}
+
+export const postDiff = (before: string, after: string): Promise<DiffSegment[]> =>
+  apiPost<DiffSegment[]>("/api/diff", { before, after });
+
 // Banker review workflow
 export const getReviewState = (): Promise<ReviewState> =>
   apiGet<ReviewState>("/api/review/state");
