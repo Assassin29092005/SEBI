@@ -38,6 +38,7 @@ import io
 import json
 import zipfile
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -1161,3 +1162,96 @@ async def test_audit_log_excludes_health_check(
     await fresh_app.get("/api/health")
     events = (await fresh_app.get("/api/audit", headers=banker_headers)).json()
     assert not any(e["path"] == "/api/health" for e in events)
+
+
+# --------------------------------------------------------------------------
+# Regulatory staleness watcher (see app.regulatory_watch) — the real
+# connector is swapped for a fake one via monkeypatch so the standard suite
+# never hits the live network; test_regulatory_watch.py has the one real,
+# self-skipping live-network test.
+# --------------------------------------------------------------------------
+
+
+class _FakeRegulatoryWatchConnector:
+    def __init__(self, updates: list[Any]) -> None:
+        self._updates = updates
+
+    async def check_for_updates(self, since: Any) -> list[Any]:
+        return [u for u in self._updates if u.published > since]
+
+
+async def test_regulatory_watch_check_is_banker_only(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.post("/api/regulatory-watch/check")
+    assert resp.status_code == 403
+
+
+async def test_regulatory_watch_status_is_banker_only(fresh_app: AsyncClient) -> None:
+    resp = await fresh_app.get("/api/regulatory-watch/status")
+    assert resp.status_code == 403
+
+
+async def test_regulatory_watch_status_before_any_check_is_null(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    resp = await fresh_app.get("/api/regulatory-watch/status", headers=banker_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() is None
+
+
+async def test_regulatory_watch_check_clean_when_nothing_newer(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main_module.runtime_cache, "regulatory_watch_connector", _FakeRegulatoryWatchConnector([]))
+    resp = await fresh_app.post("/api/regulatory-watch/check", headers=banker_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["checked_successfully"] is True
+    assert body["newer_updates"] == []
+    assert body["pinned_amended_through"] == main_module.checklist.header.amended_through
+
+
+async def test_regulatory_watch_check_and_status_round_trip(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.regulatory_watch import RegulatoryUpdate
+
+    future_update = RegulatoryUpdate(
+        title="Consultation Paper on certain Amendments to SEBI (ICDR) Regulations, 2018",
+        published=date(2099, 1, 1),
+        url="https://www.sebi.gov.in/reports/example.html",
+    )
+    monkeypatch.setattr(
+        main_module.runtime_cache,
+        "regulatory_watch_connector",
+        _FakeRegulatoryWatchConnector([future_update]),
+    )
+    checked = await fresh_app.post("/api/regulatory-watch/check", headers=banker_headers)
+    assert checked.status_code == 200, checked.text
+    checked_body = checked.json()
+    assert checked_body["checked_successfully"] is True
+    assert len(checked_body["newer_updates"]) == 1
+    assert checked_body["newer_updates"][0]["title"] == future_update.title
+
+    # The check's result is cached — a subsequent status read (no new
+    # network call) returns exactly what was just found.
+    status = await fresh_app.get("/api/regulatory-watch/status", headers=banker_headers)
+    assert status.status_code == 200, status.text
+    assert status.json() == checked_body
+
+
+async def test_regulatory_watch_check_honestly_degrades_on_connector_failure(
+    fresh_app: AsyncClient, banker_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.regulatory_watch import RegulatoryWatchUnavailable
+
+    class _FailingConnector:
+        async def check_for_updates(self, since: Any) -> list[Any]:
+            raise RegulatoryWatchUnavailable("simulated network failure")
+
+    monkeypatch.setattr(main_module.runtime_cache, "regulatory_watch_connector", _FailingConnector())
+    resp = await fresh_app.post("/api/regulatory-watch/check", headers=banker_headers)
+    assert resp.status_code == 200, resp.text  # a failed live check is not itself an API error
+    body = resp.json()
+    assert body["checked_successfully"] is False
+    assert body["newer_updates"] == []
+    assert body["source"] == "unavailable"

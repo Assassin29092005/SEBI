@@ -8,9 +8,11 @@ import {
   getArithmetic,
   getContradictions,
   getExtractionReliability,
+  getRegulatoryWatchStatus,
   getReviewState,
   getSchema,
   getSections,
+  postRegulatoryWatchCheck,
   recordEdit,
   uploadExtract,
   type BankerEdit,
@@ -23,6 +25,7 @@ import {
   type ReviewState,
   type SectionState,
   type Severity,
+  type StalenessCheckResult,
 } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
@@ -380,6 +383,106 @@ function ExtractionReliabilityPanel({
   );
 }
 
+// --------------------------------------------------------------------------
+// Regulatory staleness watcher (see backend/app/regulatory_watch.py). The
+// schema pins an exact ICDR amendment date; this compares that pin against
+// SEBI's real, live ICDR-tagged postings on demand — a real external HTTP
+// call, so it only ever fires on an explicit banker click, never silently
+// on page load (status alone, which just reads the last cached result, IS
+// loaded automatically — see the effect in BankerDashboard below).
+// --------------------------------------------------------------------------
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function RegulatoryWatchPanel({
+  result,
+  checking,
+  onCheckNow,
+}: {
+  result: StalenessCheckResult | null;
+  checking: boolean;
+  onCheckNow: () => void;
+}) {
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+        <h2 className="text-lg font-semibold">Regulatory staleness</h2>
+        <button
+          type="button"
+          onClick={onCheckNow}
+          disabled={checking}
+          className={
+            "rounded px-3 py-1.5 text-xs font-medium text-white " +
+            (checking ? "bg-slate-400 cursor-not-allowed" : "bg-slate-800 hover:bg-slate-900")
+          }
+        >
+          {checking ? "Checking sebi.gov.in…" : "Check for updates now"}
+        </button>
+      </div>
+      <p className="text-sm text-slate-600 mb-4 max-w-3xl">
+        The checklist schema pins an exact ICDR amendment date. A demo checks
+        that pin once; production doesn&apos;t get that luxury — this compares
+        it against SEBI&apos;s real, live ICDR-tagged postings (circulars,
+        consultation papers, informal guidance, enforcement notices) on
+        demand. Never auto-updates the schema — every schema change is
+        human-reviewed; this only flags &ldquo;go check this.&rdquo;
+      </p>
+
+      {!result ? (
+        <p className="text-sm text-slate-500">
+          Not checked yet this session. Click &ldquo;Check for updates
+          now&rdquo; to compare the pinned date against SEBI&apos;s site.
+        </p>
+      ) : !result.checked_successfully ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          Could not reach SEBI&apos;s site (or its layout changed) as of{" "}
+          {formatDateTime(result.checked_at)}. This is inconclusive, not a
+          clean bill of health — try again later.
+        </div>
+      ) : result.newer_updates.length === 0 ? (
+        <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+          Clean as of {formatDateTime(result.checked_at)}: nothing newer than
+          the pinned {result.pinned_amended_through} found ({result.source}).
+        </div>
+      ) : (
+        <div>
+          <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 mb-3">
+            {result.newer_updates.length} ICDR-tagged posting
+            {result.newer_updates.length === 1 ? "" : "s"} newer than the
+            pinned {result.pinned_amended_through} (checked{" "}
+            {formatDateTime(result.checked_at)}). Most of these will be
+            consultation papers or guidance, not notified amendments — a
+            human should go check, this is not itself a claim the schema is
+            out of date.
+          </div>
+          <ul className="space-y-2">
+            {result.newer_updates.map((u) => (
+              <li key={u.url} className="rounded border border-slate-200 p-3 text-sm">
+                <div className="flex items-baseline justify-between gap-3">
+                  <a
+                    href={u.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-700 hover:text-blue-900 underline font-medium"
+                  >
+                    {u.title}
+                  </a>
+                  <span className="shrink-0 text-xs text-slate-500">{u.published}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BankerDashboard() {
   // The server always records the authenticated banker as editor (see
   // POST /api/review/edit) — no free-text "editor" field to spoof or forget.
@@ -421,6 +524,13 @@ export default function BankerDashboard() {
   // must never depend on this endpoint being up.
   const [reliabilityReport, setReliabilityReport] =
     useState<ExtractionReliabilityReport | null>(null);
+
+  // Regulatory staleness — the STATUS read (last cached result, or null) is
+  // safe to auto-load like the panels above; the actual CHECK is a real
+  // external HTTP call and only ever runs on an explicit click (see
+  // onRegulatoryWatchCheck below).
+  const [staleness, setStaleness] = useState<StalenessCheckResult | null>(null);
+  const [checkingStaleness, setCheckingStaleness] = useState<boolean>(false);
 
   // ----------------------------------------------------------------------
   // Initial load: schema + review state + generated sections in parallel.
@@ -484,6 +594,37 @@ export default function BankerDashboard() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await getRegulatoryWatchStatus();
+        if (!cancelled) setStaleness(result);
+      } catch {
+        // Deliberately swallowed — a status read failing shouldn't disturb
+        // the rest of the dashboard; the panel just stays in its
+        // "not checked yet" state.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const onRegulatoryWatchCheck = useCallback(async () => {
+    setCheckingStaleness(true);
+    try {
+      const result = await postRegulatoryWatchCheck();
+      setStaleness(result);
+    } catch {
+      // The panel keeps showing whatever it last had; a transient failure
+      // here (e.g. a 403 if role state ever changed mid-session) shouldn't
+      // crash the dashboard.
+    } finally {
+      setCheckingStaleness(false);
+    }
   }, []);
 
 // ----------------------------------------------------------------------
@@ -993,6 +1134,13 @@ export default function BankerDashboard() {
       {reliabilityReport && (
         <ExtractionReliabilityPanel report={reliabilityReport} />
       )}
+
+      {/* --- Regulatory staleness watcher --------------------------------- */}
+      <RegulatoryWatchPanel
+        result={staleness}
+        checking={checkingStaleness}
+        onCheckNow={() => void onRegulatoryWatchCheck()}
+      />
 
       {/* --- Export + certification lock -------------------------------- */}
       <div>

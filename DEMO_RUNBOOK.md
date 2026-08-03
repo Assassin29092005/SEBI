@@ -180,6 +180,18 @@ single fresh demo run the numbers are sparse — it's designed to become
 meaningful with continuous real usage across drafting cycles, not a
 one-shot demo metric.
 
+### 9b. Regulatory staleness watcher (optional, 30 s)
+Scroll further to "Regulatory staleness." Click **Check for updates now** —
+this is a real live HTTP call to sebi.gov.in, not a canned response. "The
+schema pins ICDR as amended through a specific date. A demo checks that
+once and moves on; SEBI amendments happen continuously in production, so
+this genuinely re-checks SEBI's own public site for anything ICDR-tagged
+newer than our pin — and it's also on a weekly GitHub Actions cron, so it
+runs even when nobody's looking." If it comes back clean: "that's a real
+result, not a hardcoded 'all good' — right now nothing SEBI's published is
+newer than our pin." It never auto-updates the schema either way — every
+schema change is human-reviewed, this only flags "go check this."
+
 ### 10. Open the docx (60 s)
 Package downloads as `drhp_studio_package.zip`. Extract, open `drhp.docx`:
 - Cover page carries both issue-size values + a bold red **CONTRADICTION
