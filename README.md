@@ -31,6 +31,12 @@ banker certification → exchange-ready package**. The tool:
   caught someone else's extraction error (see `backend/app/extraction_reliability.py`).
 - Encodes SEBI ICDR Chapter IX (Schedule VI Parts A + E) as a versioned,
   clause-cited YAML checklist — the single source of truth.
+- The pinned regulation date doesn't just sit there: a regulatory-staleness
+  watcher (`backend/app/regulatory_watch.py`) really scrapes SEBI's public
+  site for anything ICDR-tagged newer than the pin — weekly via a scheduled
+  GitHub Actions workflow, or on demand from the Banker Dashboard — and
+  flags it for human review rather than auto-updating the schema. A demo
+  checks the pin once; production doesn't get that luxury.
 - Extracts facts from uploads, gates every value on promoter confirmation,
   and refuses to feed unconfirmed data into generation. Confirming a fact
   means seeing the real source, not a bare quoted string: an inline viewer

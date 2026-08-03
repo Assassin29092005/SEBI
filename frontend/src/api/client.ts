@@ -670,6 +670,32 @@ export const exportPackage = (): Promise<ExportResponse> =>
 export const getExtractionReliability = (): Promise<ExtractionReliabilityReport> =>
   apiGet<ExtractionReliabilityReport>("/api/extraction-reliability");
 
+// Regulatory staleness watcher (banker-only, backend/app/regulatory_watch.py)
+// — compares the checklist schema's pinned amended_through date against
+// SEBI's real, live ICDR-tagged postings. A real external HTTP call, so the
+// POST is only ever fired by an explicit banker click, never on page load;
+// GET status just reads back whatever the last POST cached (or null if
+// nothing has been checked yet this process's lifetime).
+export interface RegulatoryUpdate {
+  title: string;
+  published: string; // ISO date
+  url: string;
+}
+
+export interface StalenessCheckResult {
+  checked_at: string; // ISO datetime
+  pinned_amended_through: string; // ISO date
+  checked_successfully: boolean;
+  newer_updates: RegulatoryUpdate[];
+  source: string;
+}
+
+export const getRegulatoryWatchStatus = (): Promise<StalenessCheckResult | null> =>
+  apiGet<StalenessCheckResult | null>("/api/regulatory-watch/status");
+
+export const postRegulatoryWatchCheck = (): Promise<StalenessCheckResult> =>
+  apiPost<StalenessCheckResult>("/api/regulatory-watch/check", {});
+
 // Assembly — returns the URL the browser can point an <a href> / download at.
 // Not fetched here because the response is a .docx binary, not JSON.
 export const assembleUrl = (target: OutputTarget): string =>

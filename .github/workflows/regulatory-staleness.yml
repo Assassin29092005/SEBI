@@ -1,0 +1,28 @@
+name: Regulatory staleness watch
+
+# Runs independently of any deployed instance — there is no always-on
+# server here to poll on a schedule instead. A demo checks the schema's
+# pinned amendment date once at build time; this is the "continuously, in
+# production" half of that same claim (see app.regulatory_watch and
+# CLAUDE.md's Known Limitations).
+on:
+  schedule:
+    - cron: "0 6 * * 1" # every Monday, 06:00 UTC
+  workflow_dispatch: {} # manual "check now" from the Actions tab
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend deps
+        run: pip install -e "backend[dev]"
+
+      - name: Check SEBI's public ICDR-tagged postings against the pinned schema date
+        run: python backend/scripts/check_regulatory_staleness.py

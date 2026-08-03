@@ -33,6 +33,7 @@ import logging
 import os
 import re
 import shutil
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -75,6 +76,7 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
+from app.regulatory_watch import StalenessCheckResult, check_for_staleness
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
 from app.schema.loader import load_checklist
@@ -1009,3 +1011,39 @@ async def extraction_reliability(
     """
     store = await facts_repo.load_fact_store(session)
     return compute_reliability(store)
+
+
+# --------------------------------------------------------------------------
+# Regulatory staleness watcher (see app.regulatory_watch)
+# --------------------------------------------------------------------------
+
+
+@app.post("/api/regulatory-watch/check")
+async def regulatory_watch_check(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> StalenessCheckResult:
+    """Check SEBI's public ICDR-tagged postings against the schema's pinned
+    ``amended_through`` date and cache the result.
+
+    Banker-only, same oversight rationale as the audit log / extraction
+    reliability above — this is a compliance-currency signal about the
+    tool itself, not draft content. Never auto-updates the schema (every
+    schema change is human-reviewed, per CLAUDE.md) — this only surfaces
+    "go check this," the same routing-not-automating philosophy as the gap
+    report. A real external HTTP call against SEBI's public site, so it is
+    explicitly triggered here rather than run on every page load — see
+    ``GET /api/regulatory-watch/status`` for the cached-read counterpart.
+    """
+    pinned = date.fromisoformat(checklist.header.amended_through)
+    result = await check_for_staleness(pinned, connector=runtime_cache.regulatory_watch_connector)
+    runtime_cache.set_last_staleness_check(result)
+    return result
+
+
+@app.get("/api/regulatory-watch/status")
+async def regulatory_watch_status(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> StalenessCheckResult | None:
+    """The last cached check result, or ``null`` if none has run yet this
+    process's lifetime — never triggers a fresh network call itself."""
+    return runtime_cache.get_last_staleness_check()
