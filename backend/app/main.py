@@ -65,6 +65,7 @@ from app.extraction_reliability import ExtractionReliabilityReport, compute_reli
 from app.facts import Fact, FactStore, Provenance
 from app.facts_repo import FactNotFound
 from app.generate.sections import GeneratedSection, generate_all
+from app.generate.translate import TranslatedSection, translate_section_text
 from app.intake.litigation import LitigationRecord
 from app.intake.ocr import render_pdf_page_with_highlight
 from app.intake.uploads import ExtractionProposal, extract_facts, proposal_to_fact
@@ -635,6 +636,35 @@ async def generate(
 async def sections(_user: User = Depends(get_current_user)) -> list[GeneratedSection]:
     """Return the last generated sections (empty list if never generated)."""
     return runtime_cache.get_generated_sections()
+
+
+@app.get("/api/sections/{entry_id}/translate")
+async def translate_section(
+    entry_id: str,
+    lang: str = Query(..., min_length=2, max_length=8),
+    _user: User = Depends(get_current_user),
+) -> TranslatedSection:
+    """Translate one cached generated section for promoter review (see
+    app.generate.translate) — the same EN/HI convention the wizard already
+    advertises, extended from a demo intake toggle to the draft itself.
+
+    Read-only and vernacular-only: the filed DRHP is never translated or
+    re-assembled, only this section's on-screen text for review. Unlike
+    every other LLM-touching endpoint, there is no deterministic fallback —
+    ``translated: false`` in the response is the honest signal that this
+    particular call didn't get translated (no LLM configured, the call
+    failed, or the result introduced a number not in the source), not an
+    error the caller has to handle specially.
+    """
+    match = next(
+        (s for s in runtime_cache.get_generated_sections() if s.entry_id == entry_id), None
+    )
+    if match is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no generated section for entry_id={entry_id!r} — run POST /api/generate first",
+        )
+    return await translate_section_text(entry_id, match.text, lang)
 
 
 # --------------------------------------------------------------------------
