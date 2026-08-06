@@ -16,7 +16,10 @@ dependencies = [
     "pyjwt>=2.8",
     "cryptography>=42",
     "pytesseract>=0.3.10",
-    "Pillow>=10.0",
+    # >=10.1 for ImageFont.load_default(size=...) — the scalable default the
+    # real-OCR test renders its fixture with (the pre-10.1 bitmap default is
+    # too small for Tesseract to read after a 300-DPI upscale).
+    "Pillow>=10.1",
     "pymupdf>=1.24",
     "sqlmodel>=0.0.22",
     "asyncpg>=0.29",
