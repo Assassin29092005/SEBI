@@ -69,11 +69,16 @@ class Settings(BaseSettings):
     # from — not just the extracted text. See app.intake.vault.
     uploads_dir: Path = REPO_ROOT / "data" / "uploads"
 
-    # Audit log: who accessed/changed what, and when — every request is
-    # recorded (see app.audit + main.py's audit_log middleware), encrypted
-    # at rest like everything else. GET /api/health is the only exclusion
-    # (pure liveness-check noise, never security-relevant).
-    audit_dir: Path = REPO_ROOT / "data" / "audit"
+    # Rate limiting: in-memory sliding window (see app.rate_limit). Off in
+    # tests, whose windows would otherwise be wall-clock against a suite that
+    # fires hundreds of requests per second. Audit-log retention is not
+    # configured here: it belongs to backend/scripts/backup.py, which runs
+    # outside the app and prunes only after a successful dump.
+    rate_limit_enabled: bool = True
+
+    # CORS: comma-separated allowed origins. Default is the Vite dev server
+    # only. Set ALLOWED_ORIGINS="https://yourdomain.com" in production env.
+    allowed_origins: str = "http://localhost:5173"
 
     # Litigation lookup (see app.intake.litigation): "indiankanoon" is the
     # one real API this connects to — api.indiankanoon.org, a real paid

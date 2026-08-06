@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   advanceSection,
   acceptProposal,
+  apiDownloadFile,
   bundleUrl,
   confirmFact,
   exportPackage,
   getArithmetic,
+  getAuditLog,
   getContradictions,
   getExtractionReliability,
   getRegulatoryWatchStatus,
@@ -15,6 +17,8 @@ import {
   postRegulatoryWatchCheck,
   recordEdit,
   uploadExtract,
+  type AuditEvent,
+  type AuditOutcome,
   type BankerEdit,
   type Checklist,
   type ChecklistEntry,
@@ -275,6 +279,175 @@ function DueDiligenceUpload({ reviewState, onUploadComplete }: DueDiligenceUploa
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Access log (banker-only — see backend/app/audit). Fact provenance already
+// answers "who supplied this value" and the review trail answers "who edited
+// this section"; this is the third question a compliance review asks — "who
+// *looked* at it" — and until now it was API-only with no way to read it
+// without curl.
+//
+// Loaded on an explicit click rather than on mount: unlike the panels above
+// it is a potentially large table nobody needs on every dashboard visit, and
+// reading the access log is itself an audited action.
+// --------------------------------------------------------------------------
+
+const OUTCOME_BADGE: Record<AuditOutcome, string> = {
+  success: "bg-green-50 text-green-800 border-green-200",
+  denied: "bg-red-50 text-red-800 border-red-200",
+  error: "bg-amber-50 text-amber-800 border-amber-200",
+};
+
+const AUDIT_PAGE_SIZE = 100;
+
+function formatAuditTime(iso: string): string {
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
+}
+
+function AuditLogPanel() {
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actorEmail, setActorEmail] = useState("");
+  const [outcome, setOutcome] = useState<AuditOutcome | "">("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setEvents(
+        await getAuditLog({
+          actor_email: actorEmail.trim() || undefined,
+          outcome: outcome || undefined,
+          limit: AUDIT_PAGE_SIZE,
+        }),
+      );
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [actorEmail, outcome]);
+
+  const deniedCount = useMemo(
+    () => (events ?? []).filter((e) => e.outcome === "denied").length,
+    [events],
+  );
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      <h2 className="text-lg font-semibold mb-1">Access log</h2>
+      <p className="text-sm text-slate-600 mb-3 max-w-3xl">
+        Every API request against this deployment — who, what, when, and
+        whether it succeeded. Denied attempts are recorded too, so this also
+        answers &quot;did anyone try something they shouldn&apos;t have.&quot;
+        Static assets and health checks are excluded server-side; they say
+        nothing about who read which fact.
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2 mb-3">
+        <label className="flex flex-col text-xs text-slate-600">
+          Actor email
+          <input
+            type="text"
+            value={actorEmail}
+            onChange={(e) => setActorEmail(e.target.value)}
+            placeholder="anyone"
+            className="mt-1 rounded border border-slate-300 px-2 py-1 text-sm focus:ring-2"
+          />
+        </label>
+        <label className="flex flex-col text-xs text-slate-600">
+          Outcome
+          <select
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value as AuditOutcome | "")}
+            className="mt-1 rounded border border-slate-300 px-2 py-1 text-sm focus:ring-2"
+          >
+            <option value="">any</option>
+            <option value="success">success</option>
+            <option value="denied">denied</option>
+            <option value="error">error</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : events ? "Refresh" : "Load access log"}
+        </button>
+      </div>
+
+      {error && (
+        <p role="alert" className="text-sm text-red-700">
+          {error}
+        </p>
+      )}
+
+      {events && (
+        <>
+          <p className="text-xs text-slate-500 mb-2">
+            Showing the {events.length} most recent
+            {events.length === AUDIT_PAGE_SIZE ? ` of possibly more` : ""}
+            {deniedCount > 0 ? ` · ${deniedCount} denied` : ""}
+          </p>
+          {events.length === 0 ? (
+            <p className="text-sm text-slate-600">No events match those filters.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead className="text-slate-500">
+                  <tr>
+                    <th scope="col" className="py-1 pr-3 font-medium">When</th>
+                    <th scope="col" className="py-1 pr-3 font-medium">Actor</th>
+                    <th scope="col" className="py-1 pr-3 font-medium">Action</th>
+                    <th scope="col" className="py-1 pr-3 font-medium">Resource</th>
+                    <th scope="col" className="py-1 pr-3 font-medium">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody className="text-slate-800">
+                  {events.map((e) => (
+                    <tr key={e.event_id} className="border-t border-slate-100 align-top">
+                      <td className="py-1 pr-3 whitespace-nowrap">{formatAuditTime(e.at)}</td>
+                      <td className="py-1 pr-3">
+                        {e.actor_email}
+                        {e.actor_role ? (
+                          <span className="text-slate-500"> ({e.actor_role})</span>
+                        ) : null}
+                      </td>
+                      <td className="py-1 pr-3 font-mono break-all">{e.action}</td>
+                      <td className="py-1 pr-3">
+                        {e.resource_type}
+                        {e.resource_id ? (
+                          <span className="text-slate-500 font-mono break-all">
+                            {" "}
+                            {e.resource_id}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-1 pr-3 whitespace-nowrap">
+                        <span
+                          className={
+                            "inline-block rounded border px-1.5 py-0.5 " +
+                            OUTCOME_BADGE[e.outcome]
+                          }
+                        >
+                          {e.outcome} {e.status_code}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1120,6 +1293,10 @@ export default function BankerDashboard() {
         <ExtractionReliabilityPanel report={reliabilityReport} />
       )}
 
+      {/* --- Access log (who looked at what) ----------------------------- */}
+      <AuditLogPanel />
+
+
       {/* --- Regulatory staleness watcher --------------------------------- */}
       <RegulatoryWatchPanel
         result={staleness}
@@ -1171,13 +1348,13 @@ export default function BankerDashboard() {
                 </p>
               </>
             ) : (
-              <a
-                href={bundleUrl()}
-                download
+              <button
+                type="button"
+                onClick={() => void apiDownloadFile(bundleUrl(), "exchange_ready_package.zip")}
                 className="inline-block rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
               >
                 Download exchange-ready package (.zip)
-              </a>
+              </button>
             )}
             <p className="mt-1 text-xs text-slate-500">
               Contains both draft documents, the gap report, contradiction and
@@ -1225,22 +1402,22 @@ export default function BankerDashboard() {
             </p>
             <ul className="mt-2 space-y-1 text-sm">
               <li>
-                <a
-                  href={exportResult.drhp}
-                  className="text-emerald-800 underline hover:text-emerald-900"
-                  download
+                <button
+                  type="button"
+                  onClick={() => void apiDownloadFile(exportResult.drhp, "drhp.docx")}
+                  className="text-emerald-800 underline hover:text-emerald-900 text-sm"
                 >
                   Draft Red Herring Prospectus (DRHP)
-                </a>
+                </button>
               </li>
               <li>
-                <a
-                  href={exportResult.abridged}
-                  className="text-emerald-800 underline hover:text-emerald-900"
-                  download
+                <button
+                  type="button"
+                  onClick={() => void apiDownloadFile(exportResult.abridged, "abridged_prospectus.docx")}
+                  className="text-emerald-800 underline hover:text-emerald-900 text-sm"
                 >
                   Draft abridged prospectus
-                </a>
+                </button>
               </li>
             </ul>
           </div>
