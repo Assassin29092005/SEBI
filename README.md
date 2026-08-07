@@ -131,6 +131,12 @@ filing quarters and sectors: 100% in-scope chapter match on every one
 - `Dockerfile` — one deployable image: backend, built frontend (served by the
   API itself), and Tesseract. `.github/workflows/ci.yml` builds it on every
   push alongside the test/lint/type-check jobs.
+- `render.yaml` + `DEPLOY.md` — Render Blueprint and deployment guide. In
+  production the database is Render's own managed Postgres, a separate
+  service from the container — deploying new code never touches it. The
+  encrypted uploads vault does ride on the container filesystem, which is
+  ephemeral without a paid disk; `DEPLOY.md` spells out exactly what that
+  costs.
 
 ## Run it
 
