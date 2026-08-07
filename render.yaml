@@ -27,17 +27,21 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
 
-    # Migrations run at container start rather than via preDeployCommand,
-    # which keeps this working on the free tier too. Safe here because a
-    # free/disk-backed service is a single instance — with several instances
-    # this belongs in preDeployCommand so they cannot race each other.
+    # No dockerCommand: the image's own CMD (docker-entrypoint.sh) already
+    # runs migrations and then binds $PORT, so local `docker run` and Render
+    # start the app identically.
     #
-    # Binds $PORT: Render assigns it, and a container listening on a fixed
-    # 8000 instead is the usual cause of a deploy that builds fine and then
-    # never passes its health check.
-    dockerCommand: >-
-      sh -c "cd /app/backend && python -m alembic upgrade head && cd /app &&
-      python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+    # An inline command string here was the first attempt and it failed —
+    # Render runs dockerCommand through its own shell, so an `sh -c "..."`
+    # wrapper handed the inner shell the whole `cd … && … && …` chain as a
+    # single program name and the deploy exited 127, "not found". A script in
+    # the image sidesteps the quoting question entirely.
+    #
+    # Migrations run at container start rather than via preDeployCommand,
+    # which keeps this working on the free tier where pre-deploy commands are
+    # unavailable. Safe because free and disk-backed services are both single
+    # instance; with several instances this belongs in preDeployCommand so
+    # they cannot race each other.
 
     # /api/health answers 200 with "status": "degraded" when the process is up
     # but Postgres is unreachable, so Render treats that as live. The
