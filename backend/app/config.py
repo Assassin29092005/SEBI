@@ -101,6 +101,18 @@ class Settings(BaseSettings):
     # only. Set ALLOWED_ORIGINS="https://yourdomain.com" in production env.
     allowed_origins: str = "http://localhost:5173"
 
+    # Sarvam AI (see app.llm.sarvam) — Indic-first translation, used only by
+    # the vernacular draft-review feature. Gemini/Groq translate Indian
+    # languages as a side capability; Sarvam builds for them specifically, and
+    # translation is the one LLM path in this app with no deterministic
+    # fallback, so it is worth the better tool. Unset, translation falls back
+    # to the general provider and then to showing the English original.
+    sarvam_api_key: str = ""
+    # "sarvam-translate:v1" allows 2000 characters per request against
+    # "mayura:v1"'s 1000. Real sections here reach ~2066, so both need
+    # chunking, but the larger limit means far fewer round trips.
+    sarvam_model: str = "sarvam-translate:v1"
+
     # Litigation lookup (see app.intake.litigation): "indiankanoon" is the
     # one real API this connects to — api.indiankanoon.org, a real paid
     # service indexing published Supreme Court/High Court/tribunal

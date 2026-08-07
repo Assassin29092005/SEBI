@@ -36,6 +36,7 @@ import re
 from pydantic import BaseModel
 
 from app.intake.wizard import SUPPORTED_LANGUAGES
+from app.llm import sarvam
 from app.llm.client import grounded_complete
 
 try:  # pragma: no cover - exercised only once the client exports it
@@ -89,6 +90,34 @@ def _preserves_numbers(original: str, translated: str) -> bool:
     return all(digits in original for digits in _DIGITS_RE.findall(translated))
 
 
+async def _translate(text: str, lang: str) -> str | None:
+    """Translate via the best available provider, or ``None`` if none works.
+
+    Sarvam first when configured: it is built for Indian languages, where
+    Gemini/Groq translate them as a side capability. If it is unconfigured or
+    fails, the general chat provider still gets a turn — this feature has no
+    deterministic fallback at all, so a worse translation beats none. Both
+    unavailable means the caller shows the English original.
+    """
+    if sarvam.is_available():
+        try:
+            return (await sarvam.translate(text, lang)).strip()
+        except _LLM_SKIP_ERRORS:
+            pass  # fall through to the general provider
+
+    system = _SYSTEM_PROMPT_TEMPLATE.format(language=_LANGUAGE_NAMES.get(lang, lang))
+    try:
+        response = await grounded_complete(
+            system=system,
+            user=text,
+            context_fact_ids=[],  # translation, not fact-grounded generation
+            temperature=0.0,
+        )
+    except _LLM_SKIP_ERRORS:
+        return None
+    return response.text.strip()
+
+
 async def translate_section_text(
     entry_id: str, text: str, lang: str
 ) -> TranslatedSection:
@@ -104,19 +133,9 @@ async def translate_section_text(
     if not text.strip():
         return TranslatedSection(entry_id=entry_id, lang=lang, text=text, translated=True)
 
-    language_name = _LANGUAGE_NAMES.get(lang, lang)
-    system = _SYSTEM_PROMPT_TEMPLATE.format(language=language_name)
-    try:
-        response = await grounded_complete(
-            system=system,
-            user=text,
-            context_fact_ids=[],  # translation, not fact-grounded generation
-            temperature=0.0,
-        )
-    except _LLM_SKIP_ERRORS:
+    translated_text = await _translate(text, lang)
+    if translated_text is None:
         return TranslatedSection(entry_id=entry_id, lang=lang, text=text, translated=False)
-
-    translated_text = response.text.strip()
     if not translated_text or not _preserves_numbers(text, translated_text):
         return TranslatedSection(entry_id=entry_id, lang=lang, text=text, translated=False)
 
