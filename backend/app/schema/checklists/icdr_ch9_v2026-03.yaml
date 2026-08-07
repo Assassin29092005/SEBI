@@ -500,6 +500,10 @@ entries:
     required_facts:
       - issue_size_paise
       - price_band
+      # The renderer derives minimum_application_size from the exchange, so the
+      # exchange has to be retrieved for this entry — it wasn't, and the
+      # renderer silently fell back to naming an exchange it had no fact for.
+      - sme_exchange
       - minimum_application_size
     responsible_role: system
     severity: material

@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from app.facts import Fact, FactStore
 from app.llm.client import grounded_complete
 from app.schema.applicability import entry_applies
-from app.schema.models import Checklist, ChecklistEntry
+from app.schema.models import Checklist, ChecklistEntry, owner_of_fact
 
 try:  # pragma: no cover - exercised only once the client exports it
     from app.llm.client import LLMUnavailable  # type: ignore[attr-defined]
@@ -143,7 +143,7 @@ def _render_deterministic(
         lines.append(sentence)
         offset += len(sentence) + 1  # +1 for the joining newline
     for key in missing:
-        lines.append(requires_input_marker(key, entry.responsible_role.value))
+        lines.append(requires_input_marker(key, owner_of_fact(key, entry.responsible_role).value))
     return GeneratedSection(
         entry_id=entry.id,
         section=entry.section,
@@ -224,7 +224,7 @@ def _render_definitions_abbreviations(
         lines.append(sentence)
         offset += len(sentence) + 1
     for key in missing:
-        lines.append(requires_input_marker(key, entry.responsible_role.value))
+        lines.append(requires_input_marker(key, owner_of_fact(key, entry.responsible_role).value))
     return GeneratedSection(
         entry_id=entry.id,
         section=entry.section,
@@ -251,10 +251,19 @@ def _render_terms_of_issue(
     Computes minimum_application_size from the confirmed sme_exchange fact.
     Renders a deterministic disclosure paragraph with citations.
     """
-    # Find sme_exchange fact
+    # No default exchange. This used to fall back to "NSE Emerge" when the
+    # fact was absent, which put a specific exchange name into filed-document
+    # prose on no evidence at all — and contradicted the confirmed
+    # sme_exchange fact cited elsewhere in the same draft. That is exactly the
+    # invented fact the whole design forbids; it slipped in because the guard
+    # rails watch the LLM path and this renderer is deterministic.
     sme_exchange_fact = next((f for f in facts if f.key == "sme_exchange"), None)
-    exchange = str(sme_exchange_fact.value) if sme_exchange_fact else "NSE Emerge"
-    min_app_size = _MIN_APP_SIZE_BY_EXCHANGE.get(exchange, _DEFAULT_MIN_APP_SIZE_PAISE)
+    exchange = str(sme_exchange_fact.value) if sme_exchange_fact else None
+    min_app_size = (
+        _MIN_APP_SIZE_BY_EXCHANGE.get(exchange, _DEFAULT_MIN_APP_SIZE_PAISE)
+        if exchange
+        else None
+    )
 
     lines: list[str] = []
     citations: list[Citation] = []
@@ -278,16 +287,19 @@ def _render_terms_of_issue(
         lines.append(sentence)
         offset += len(sentence) + 1
 
-    # Minimum application size (computed from exchange)
-    min_app_text = (
-        f"Minimum application size: {format_inr_paise(min_app_size)} "
-        f"(computed from chosen SME exchange: {exchange})."
-    )
-    if sme_exchange_fact:
+    # Minimum application size — only ever stated when the exchange it is
+    # derived from is a confirmed fact. Without it the section says so, rather
+    # than printing a figure and a [REQUIRES INPUT] marker for the same value
+    # in the same breath, which is what it used to do.
+    if exchange and min_app_size is not None and sme_exchange_fact is not None:
+        min_app_text = (
+            f"Minimum application size: {format_inr_paise(min_app_size)} "
+            f"(computed from chosen SME exchange: {exchange})."
+        )
         span = (offset, offset + len(min_app_text))
         citations.append(Citation(fact_id=sme_exchange_fact.fact_id, text_span=span))
-    lines.append(min_app_text)
-    offset += len(min_app_text) + 1
+        lines.append(min_app_text)
+        offset += len(min_app_text) + 1
 
     # Means of finance line
     mof_fact = next((f for f in facts if f.key == "means_of_finance"), None)
@@ -299,7 +311,7 @@ def _render_terms_of_issue(
         offset += len(sentence) + 1
 
     for key in missing:
-        lines.append(requires_input_marker(key, entry.responsible_role.value))
+        lines.append(requires_input_marker(key, owner_of_fact(key, entry.responsible_role).value))
 
     return GeneratedSection(
         entry_id=entry.id,
@@ -493,7 +505,8 @@ async def generate_section(
     text = cleaned.rstrip()  # rstrip only — leading offsets must stay valid
     if missing:
         markers = "\n".join(
-            requires_input_marker(key, entry.responsible_role.value) for key in missing
+            requires_input_marker(key, owner_of_fact(key, entry.responsible_role).value)
+            for key in missing
         )
         text = f"{text}\n{markers}" if text else markers
     return GeneratedSection(

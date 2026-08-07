@@ -77,7 +77,14 @@ interface Segment {
   marker: Marker | null;
 }
 
-const REQUIRES_INPUT_RE = /\[REQUIRES INPUT:[^\]]*\]/g;
+// Anchored on the marker's own closing phrase rather than "up to the next ]".
+// `[^\]]*\]` stops at the FIRST ], which for an array-valued key like
+// `material_litigation[]` is the one inside the key itself — so the match came
+// back truncated as "[REQUIRES INPUT: material_litigation[]", the em-dash was
+// lost, and the deep-link regex below could never identify the role. Every
+// list-valued gap silently rendered as an unclickable chip while scalar ones
+// linked correctly. Kept lazy so two markers in a row don't merge into one.
+const REQUIRES_INPUT_RE = /\[REQUIRES INPUT:.*?can provide this\]/g;
 
 /**
  * Slice a section's text into a run of plain-text and marker segments.
