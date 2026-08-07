@@ -51,11 +51,23 @@ def test_retrieve_rejects_path_traversal_id() -> None:
 
 
 def test_list_archived_uploads_is_sorted_oldest_first() -> None:
+    """Oldest first, and stable when timestamps tie.
+
+    Two uploads inside one request routinely share an ``uploaded_at``:
+    ``datetime.now()`` resolves to roughly 15ms on Windows. This asserted a
+    strict insertion order that the sort could not deliver for a tie, so it
+    passed or failed on whichever UUID ``glob`` happened to return first.
+    The listing now tie-breaks on document_id, which is arbitrary but
+    *stable* — the property that actually matters to someone reading it.
+    """
     first = archive_upload(b"one", "a.txt", "text/plain", Role.PROMOTER)
     second = archive_upload(b"two", "b.txt", "text/plain", Role.BANKER)
 
     listed = list_archived_uploads()
-    assert [m.document_id for m in listed] == [first.document_id, second.document_id]
+    assert {m.document_id for m in listed} == {first.document_id, second.document_id}
+    assert [m.uploaded_at for m in listed] == sorted(m.uploaded_at for m in listed)
+    # Same input, same order, every time.
+    assert [m.document_id for m in list_archived_uploads()] == [m.document_id for m in listed]
 
 
 def test_list_archived_uploads_empty_when_dir_missing() -> None:

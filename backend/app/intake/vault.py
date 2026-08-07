@@ -112,4 +112,10 @@ def list_archived_uploads() -> list[ArchivedDocumentMeta]:
             metas.append(_Envelope.model_validate_json(plaintext).meta)
         except (DecryptionError, OSError, ValueError):
             continue
-    return sorted(metas, key=lambda m: m.uploaded_at)
+    # Tie-broken on document_id. Sorting on uploaded_at alone left the order
+    # of same-tick uploads down to whatever `glob` returned, i.e. random UUID
+    # order that changed between runs — datetime.now() resolves to ~15ms on
+    # Windows, so two uploads in one request handler routinely share a
+    # timestamp. A listing a banker reads during due diligence should not
+    # reshuffle itself between page loads.
+    return sorted(metas, key=lambda m: (m.uploaded_at, m.document_id))

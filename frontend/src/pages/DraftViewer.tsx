@@ -84,6 +84,21 @@ interface Segment {
 // lost, and the deep-link regex below could never identify the role. Every
 // list-valued gap silently rendered as an unclickable chip while scalar ones
 // linked correctly. Kept lazy so two markers in a row don't merge into one.
+/** Where a role goes to supply a fact it owns.
+ *
+ * Only the promoter had a screen when gap chips were first made clickable, so
+ * everything else rendered as a dead chip. The auditor and banker have their
+ * own workspaces now, and a gap routed to them should take them there. The
+ * chip stays inert for anyone *else* — sending a promoter to /banker would
+ * just bounce off that route's own role guard, which is worse than no link.
+ */
+function supplyRouteFor(role: string, factKey: string): string | null {
+  if (role === "promoter") return `/wizard?focus=${encodeURIComponent(factKey)}`;
+  if (role === "auditor") return "/auditor";
+  if (role === "banker") return "/banker";
+  return null;
+}
+
 const REQUIRES_INPUT_RE = /\[REQUIRES INPUT:.*?can provide this\]/g;
 
 /**
@@ -311,6 +326,7 @@ function SectionBlock({
   lang,
   translation,
   translating,
+  viewerRole,
 }: {
   entry: GeneratedSection;
   factsById: Map<string, Fact>;
@@ -318,6 +334,7 @@ function SectionBlock({
   lang: string;
   translation: TranslatedSection | undefined;
   translating: boolean;
+  viewerRole: string | undefined;
 }) {
   const segments = useMemo(() => buildSegments(entry), [entry]);
   const citedFacts = useMemo(() => {
@@ -366,24 +383,33 @@ function SectionBlock({
             return <span key={seg.key}>{seg.text}</span>;
           }
           if (seg.marker.kind === "requires") {
-            // "[REQUIRES INPUT: <fact_key> — <role> can provide this]" → deep-link
-            // promoter-suppliable keys straight to their wizard question. The key
-            // may end in "[]" (array-valued facts), so capture up to the em-dash
-            // rather than stopping at "]". Only promoter keys have wizard
-            // questions; other roles keep the plain chip.
+            // "[REQUIRES INPUT: <fact_key> — <role> can provide this]" → link
+            // the signed-in role to wherever it supplies that fact. The key may
+            // end in "[]" (array-valued facts), so capture up to the em-dash
+            // rather than stopping at "]".
             const m = /\[REQUIRES INPUT:\s*(\S+)\s*—\s*(\w+)/.exec(seg.marker.label);
-            const factKey = m && m[2] === "promoter" ? m[1] : undefined;
+            const owner = m?.[2];
+            // Only the role that owns the gap gets a link. Everyone else sees
+            // the chip and reads, from its own text, who to go and ask.
+            const href =
+              m && owner && owner === viewerRole ? supplyRouteFor(owner, m[1]) : null;
             const chip = (
               <span
                 key={seg.key}
-                className="inline-block mx-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-xs font-medium align-middle"
-                title="This value needs to be supplied before the draft is complete."
+                className={`inline-block mx-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border text-xs font-medium align-middle ${
+                  href ? "border-amber-500 underline" : "border-amber-300"
+                }`}
+                title={
+                  href
+                    ? "You can supply this — click to go there."
+                    : "This value needs to be supplied before the draft is complete, by the role named here."
+                }
               >
                 {seg.marker.label}
               </span>
             );
-            return factKey ? (
-              <Link key={seg.key} to={`/wizard?focus=${encodeURIComponent(factKey)}`}>
+            return href ? (
+              <Link key={seg.key} to={href}>
                 {chip}
               </Link>
             ) : (
@@ -1681,6 +1707,7 @@ export default function DraftViewer() {
               </h2>
               {entries.map((entry) => (
                 <SectionBlock
+                  viewerRole={user?.role}
                   key={entry.entry_id}
                   entry={entry}
                   factsById={factsById}
