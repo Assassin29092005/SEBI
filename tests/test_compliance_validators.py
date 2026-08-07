@@ -126,6 +126,25 @@ def test_promoter_contribution_at_the_threshold_passes() -> None:
     assert "insufficient_promoter_contribution" not in _kinds(findings)
 
 
+def test_contribution_is_checked_against_post_issue_capital_without_an_issue_size() -> None:
+    """Reg. 236(1) is a percentage of post-issue capital, so that alone is
+    enough to run the check.
+
+    This gated on ``issue_size_paise`` being confirmed, even though the
+    percentage was computed against post-issue capital — so a draft with
+    both of the numbers the rule actually needs got no check at all, and a
+    blocker silently never ran.
+    """
+    findings = check_lock_in(
+        _store(
+            _fact("post_issue_capital_paise", 200_00_00_000),
+            _fact("promoter_contribution_paise", 20_00_00_000),  # 10%
+        )
+    )
+    breach = next(f for f in findings if f.kind == "insufficient_promoter_contribution")
+    assert breach.severity == "blocker"
+
+
 def test_missing_promoter_contribution_is_flagged_once_issue_size_is_known() -> None:
     findings = check_lock_in(_store(_fact("issue_size_paise", 50_00_00_000)))
     assert "missing_promoter_contribution" in _kinds(findings)
