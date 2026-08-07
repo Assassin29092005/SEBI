@@ -1,0 +1,105 @@
+# Render Blueprint — https://render.com/schema/render.yaml.json
+#
+# One web service (the existing Dockerfile: FastAPI + the built SPA + Tesseract)
+# plus managed Postgres. Deploy with: Render dashboard > New > Blueprint.
+#
+# Sized for the free tier, which is what a demo needs. Two consequences are
+# real and worth knowing before you rely on this — both covered in DEPLOY.md:
+#   * free Postgres is deleted 30 days after creation
+#   * free instances have no persistent disk, so archived uploads do not
+#     survive a restart (facts, review state, users and the audit log all live
+#     in Postgres and are unaffected)
+# The paid-tier lines are marked below; uncommenting them fixes both.
+
+databases:
+  - name: drhp-postgres
+    databaseName: drhp_studio
+    user: drhp
+    plan: free
+    region: singapore # must match the web service's region
+
+services:
+  - type: web
+    name: drhp-studio
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # Migrations run at container start rather than via preDeployCommand,
+    # which keeps this working on the free tier too. Safe here because a
+    # free/disk-backed service is a single instance — with several instances
+    # this belongs in preDeployCommand so they cannot race each other.
+    #
+    # Binds $PORT: Render assigns it, and a container listening on a fixed
+    # 8000 instead is the usual cause of a deploy that builds fine and then
+    # never passes its health check.
+    dockerCommand: >-
+      sh -c "cd /app/backend && python -m alembic upgrade head && cd /app &&
+      python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+
+    # /api/health answers 200 with "status": "degraded" when the process is up
+    # but Postgres is unreachable, so Render treats that as live. The
+    # container's own HEALTHCHECK is the stricter one — it asserts
+    # db_connected.
+    healthCheckPath: /api/health
+
+    # PAID TIER ONLY — persistent storage for the encrypted uploads vault
+    # (app.intake.vault), the one durable artefact still on the filesystem.
+    # Mount at data/uploads and NOT at data/: the image bakes the pinned ICDR
+    # regulation text and the reference DRHPs into data/, and a disk mounted
+    # over that directory hides them, breaking clause-text retrieval and the
+    # coverage benchmark. Attaching a disk also pins the service to one
+    # instance and gives up zero-downtime deploys.
+    # disk:
+    #   name: uploads-vault
+    #   mountPath: /app/data/uploads
+    #   sizeGB: 1
+
+    envVars:
+      # SQLAlchemy needs the driver named in the scheme. Render issues
+      # postgresql://…, which Settings._require_async_driver rewrites to
+      # postgresql+asyncpg:// on load — without that the app dies at first
+      # query on a missing psycopg2.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: drhp-postgres
+          property: connectionString
+
+      # Any random string works. Unset, the app falls back to a per-process
+      # key and every deploy silently signs out every user.
+      - key: JWT_SECRET_KEY
+        generateValue: true
+
+      # Must be a valid Fernet key, which generateValue cannot produce — set
+      # it yourself at blueprint creation (DEPLOY.md has the one-liner).
+      # Changing or losing it makes every already-archived upload permanently
+      # unreadable; there is no backdoor, by design.
+      - key: ENCRYPTION_KEY
+        sync: false
+
+      # Blank disables auditor/banker self-registration entirely, and with it
+      # the certification workflow and the export. Set your own values.
+      - key: BANKER_INVITE_CODE
+        sync: false
+      - key: AUDITOR_INVITE_CODE
+        sync: false
+
+      # Optional. Unset, every LLM-touching feature stays on its deterministic
+      # path — except vernacular draft review, which has no offline
+      # implementation and honestly reports translated: false.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: MAX_REQUEST_BODY_BYTES
+        value: "20971520"
+
+      # CORS. The API serves the SPA from this same origin, so cross-origin
+      # requests are not part of normal use and the default is fine. Set this
+      # to "https://<your-service>.onrender.com" only if you ever host the
+      # frontend somewhere else.
+      - key: ALLOWED_ORIGINS
+        sync: false

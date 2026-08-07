@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Managed Postgres providers (Render, Heroku, Fly, Railway, …) hand out a
+# DATABASE_URL with a plain scheme. SQLAlchemy needs the driver named in it,
+# or it falls back to psycopg2 — which isn't installed here — and the app
+# dies at first query with a confusing "No module named 'psycopg2'".
+_ASYNC_SCHEME = "postgresql+asyncpg://"
+_PLAIN_SCHEMES = ("postgresql://", "postgres://")
 
 
 class Settings(BaseSettings):
@@ -28,6 +36,22 @@ class Settings(BaseSettings):
     # plus `alembic upgrade head` is the entire local-dev setup, zero .env
     # edits required. Production sets DATABASE_URL in the environment.
     database_url: str = "postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio"
+
+    @field_validator("database_url")
+    @classmethod
+    def _require_async_driver(cls, url: str) -> str:
+        """Normalise a provider-issued DATABASE_URL to the asyncpg driver.
+
+        Render (and every other managed Postgres) sets DATABASE_URL to
+        ``postgresql://…``, which SQLAlchemy resolves to psycopg2 — not a
+        dependency here. Rewriting the scheme is what lets the deployment
+        wire the database in directly instead of hand-building the URL from
+        five separate host/user/password properties.
+        """
+        for scheme in _PLAIN_SCHEMES:
+            if url.startswith(scheme):
+                return _ASYNC_SCHEME + url[len(scheme) :]
+        return url
 
     # Auth: JWT bearer tokens + a persisted user store (see app.auth). Leaving
     # jwt_secret_key unset falls back to a per-process random key (app.auth.security)

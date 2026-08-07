@@ -177,6 +177,31 @@ def test_classify_applies_the_tightest_matching_limit() -> None:
     assert _classify("/api/gaps", "GET") == ("default", 60)
 
 
+def test_provider_database_urls_are_rewritten_to_the_async_driver() -> None:
+    """Managed Postgres hands out a plain scheme; SQLAlchemy needs the driver.
+
+    Render, Heroku and friends set DATABASE_URL to postgresql:// (Heroku
+    still uses postgres://). Either one resolves to psycopg2, which is not a
+    dependency here, so the app would come up and then die at first query on
+    a missing module. Rewriting the scheme is what lets a deployment wire the
+    database straight in instead of hand-assembling the URL from separate
+    host/user/password properties.
+    """
+    from app.config import Settings
+
+    assert (
+        Settings(database_url="postgresql://u:p@h:5432/d").database_url
+        == "postgresql+asyncpg://u:p@h:5432/d"
+    )
+    assert (
+        Settings(database_url="postgres://u:p@h:5432/d").database_url
+        == "postgresql+asyncpg://u:p@h:5432/d"
+    )
+    # Already-correct URLs pass through untouched — no double-prefixing.
+    already = "postgresql+asyncpg://u:p@h:5432/d"
+    assert Settings(database_url=already).database_url == already
+
+
 def test_each_limit_gets_its_own_bucket() -> None:
     """Anonymous traffic under the 60/min default keys on the caller's IP,
     exactly like login does. Without distinct buckets the two share one
