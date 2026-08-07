@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.facts import FactStore
 from app.schema.applicability import entry_applies
-from app.schema.models import Checklist, Role, Severity
+from app.schema.models import Checklist, Role, Severity, owner_of_fact
 
 
 class Gap(BaseModel):
@@ -49,7 +49,7 @@ def check_gaps(checklist: Checklist, store: FactStore) -> GapReport:
                         section=entry.section,
                         missing_fact_key=fact_key,
                         clause_ref=entry.clause_ref,
-                        routed_to=entry.responsible_role,
+                        routed_to=owner_of_fact(fact_key, entry.responsible_role),
                         severity=entry.severity,
                     )
                 )

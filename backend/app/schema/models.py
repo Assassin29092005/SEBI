@@ -76,3 +76,20 @@ class Checklist(BaseModel):
 
     def blockers(self) -> list[ChecklistEntry]:
         return [e for e in self.entries if e.severity == Severity.BLOCKER]
+
+# Facts only one role may lawfully supply, whichever checklist entry happens to
+# require them. An entry's ``responsible_role`` describes who owns *that
+# disclosure*, which is not always who can produce a given input to it: four
+# entries require ``restated_financials_upload``, and three of them are
+# promoter-owned, so the draft told the reader "promoter can provide this" for
+# a document only a peer-reviewed auditor may lawfully prepare. Routing by fact
+# fixes the gap report and the [REQUIRES INPUT] markers together.
+FACT_OWNER_OVERRIDE: dict[str, Role] = {
+    "restated_financials_upload": Role.AUDITOR,
+    "due_diligence_certificate_upload": Role.BANKER,
+}
+
+
+def owner_of_fact(fact_key: str, entry_role: Role) -> Role:
+    """Who can actually supply ``fact_key`` — the override, else the entry's own role."""
+    return FACT_OWNER_OVERRIDE.get(fact_key, entry_role)
