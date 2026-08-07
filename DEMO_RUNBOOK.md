@@ -167,6 +167,23 @@ panel above shows the same diff for any section it revised. "Same principle
 as the hallucination guard: nothing here is invented, it's arithmetic and
 text comparison over data the system already produced."
 
+### 6c. Compliance checks + reading the regulation (optional, 45 s)
+Expand Validation → **Compliance checks**. One click runs four deterministic
+validators: PAN/CIN/GSTIN format, related-party entities cross-referenced
+against the promoter-group disclosure, promoter contribution against the 20%
+floor with lock-in against the Reg. 238–241 minimums, and pricing (issue
+price vs. face value, price-band spread, PE recomputed from EPS against the
+stated PE). Note that checks which *pass* are shown too — an empty panel
+would be indistinguishable from "never ran."
+
+Then click any clause chip in the Gap Report. It expands to the **actual
+ICDR passage**, not just the citation label. "This is the answer to 'why are
+you asking me this?' — the promoter can read the regulation, not take our
+word for it." Worth saying out loud: it fails closed. If a citation can't be
+resolved exactly, it shows nothing rather than a near-miss passage — the
+wrong regulation next to a citation would destroy the exact guarantee it
+exists to support.
+
 ### 7. Side-by-side vs. filed DRHPs (90 s)
 Expand **Benchmark vs filed DRHPs**. Tab through the four real NSE Emerge
 filings — three from March 2026, plus a fourth (Shanti Inorganics, an
@@ -275,6 +292,17 @@ Quote these faithfully — never soften them:
   "no published judgment names this entity," not "no litigation exists."
   Falls back to the offline demo mock automatically if unconfigured or
   unreachable.
+- **"Could this actually run as a service, or only as this demo?"** It runs:
+  per-route rate limiting, request metrics with per-endpoint latency and
+  error rates (`GET /api/metrics`, banker-only), a readiness-reporting
+  health check the container's `HEALTHCHECK` actually asserts on, an
+  append-only audit table in Postgres, and a cron-able `pg_dump` backup
+  script with audit retention that only prunes after a successful dump. One
+  `docker build` produces a single image serving the API and the frontend.
+  The honest limits: rate-limit windows are per-process, so N workers mean N
+  budgets; there is no WAL archiving or point-in-time restore and nothing
+  verifies a restore works; and there is still no multi-tenancy — one
+  deployment serves one issuer's team.
 - **"Who verified your schema?"** Human-reviewed against the consolidated
   ICDR text pinned in `data/regulation/`; `reviewed_by_human: true` in the
   schema header. The six v0.4.0 entries had their clause refs verified

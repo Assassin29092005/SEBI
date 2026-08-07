@@ -57,10 +57,25 @@ banker certification → exchange-ready package**. The tool:
   (`app.generate.translate`), for review only, never the filed document. A
   translation that introduces a number not in the approved English original
   is discarded the same way generation discards ungrounded LLM text.
-- Runs four validators over the draft: gap check, cross-section
+- Runs a validation suite over the draft: gap check, cross-section
   contradiction check, boilerplate detector, adversarial-examiner objections,
   and an Objects-of-the-Issue arithmetic check (objects sum + GCP ≟ issue
   size; GCP cap per Reg. 230(2)).
+- Four further compliance checks, all deterministic and all reading
+  confirmed facts only: PAN/CIN/GSTIN **format** validation (catches typos,
+  truncation, and OCR misreads that break the structure — it does not claim
+  the identifier is registered anywhere), related-party entities
+  cross-referenced against the promoter-group disclosure, promoter
+  contribution against the 20% floor and lock-in periods against the
+  Reg. 238–241 minimums, and pricing consistency (issue price vs. face
+  value, price-band spread, PE recomputed from EPS against the stated PE).
+  See `backend/app/validate/{identifiers,rpt,lock_in,pricing}.py`.
+- Every clause citation is readable, not just cited: `clause_ref` resolves to
+  the actual ICDR passage from the pinned regulation text, expandable inline
+  next to each gap and finding. It fails closed — an unresolvable citation
+  shows nothing rather than a near-miss passage, because the wrong
+  regulation displayed next to a citation would undermine exactly the
+  traceability this is for (`backend/app/schema/clause_text.py`).
 - The adversarial examiner can loop: revise sections carrying a fixable
   objection (boilerplate, reviewer prose) and re-examine, round after round,
   until nothing new turns up — actually checking that the draft "survives
@@ -86,6 +101,12 @@ banker certification → exchange-ready package**. The tool:
   have, between other work.
 - Assembles the DRHP and the draft abridged prospectus (Sch. VI Part E per
   Reg. 246(3)) as `.docx` and bundles the full audit trail as a `.zip`.
+- Runnable as a service, not only as a rehearsed demo: per-route rate
+  limiting (`app.rate_limit`), request metrics with per-endpoint latency and
+  error rates at `GET /api/metrics` (`app.metrics`), a readiness-reporting
+  `GET /api/health`, a cron-able `pg_dump` + encrypted-uploads backup script
+  (`backend/scripts/backup.py`), and a single-image `Dockerfile` that serves
+  the API and the built frontend together.
 
 Benchmarked against four real filed NSE Emerge SME DRHPs, spanning two
 filing quarters and sectors: 100% in-scope chapter match on every one
@@ -102,11 +123,14 @@ filing quarters and sectors: 100% in-scope chapter match on every one
   quarters, two sectors) + hand-mapped chapter YAMLs for the benchmark.
 - `data/demo_company/` — synthetic issuer *Sunrise Agrotech Ltd* with a
   deliberately planted `issue_size_paise` contradiction for the live demo.
-- `data/uploads/`, `data/audit/` — encrypted-at-rest archives of original
-  source uploads and the access-log audit trail respectively (gitignored;
-  see `app.crypto`, `app.intake.vault`, `app.audit`). Facts, review state,
-  and user accounts live in Postgres, not on disk — see `app.db`.
-- `tests/` — 322 backend test functions (needs a running Postgres — see below).
+- `data/uploads/` — encrypted-at-rest archive of the original source
+  uploads (gitignored; see `app.crypto`, `app.intake.vault`). Facts, review
+  state, user accounts, and the access-log audit trail all live in Postgres,
+  not on disk — see `app.db`, `app.audit`.
+- `tests/` — 407 backend test functions (needs a running Postgres — see below).
+- `Dockerfile` — one deployable image: backend, built frontend (served by the
+  API itself), and Tesseract. `.github/workflows/ci.yml` builds it on every
+  push alongside the test/lint/type-check jobs.
 
 ## Run it
 
@@ -129,6 +153,14 @@ npm run dev                                            # Vite proxies /api → :
 # Registers (or logs into, on a repeat run) a demo promoter account first —
 # every endpoint requires a bearer token now (see backend/app/auth).
 python backend/scripts/seed_demo.py --with-uploads     # 42 wizard facts + planted contradiction
+```
+
+Or run the whole thing as one container — the API serves the built SPA
+itself, so there is no second process and no separate web server:
+
+```bash
+docker build -t drhp-studio .
+docker run --rm --network sebi_default   -e DATABASE_URL=postgresql+asyncpg://drhp:drhp_dev_password@postgres:5432/drhp_studio   -p 8000:8000 drhp-studio                             # app on :8000, no hot reload
 ```
 
 Opening the frontend directly: the app now starts on a sign-in screen.
@@ -184,7 +216,7 @@ deterministic path.
 | **Document assembly** (`app.assemble.docx_builder`) | `python-docx` layout. Cover page shows both issue-size values with a red `CONTRADICTION DETECTED` line when confirmed sources disagree. Merchant-banker disclaimer + `DRAFT — NOT FOR FILING` notice. `[REQUIRES INPUT]` runs bold red. Superscript citation markers + per-entry `Sources` list. | None. Pure templating. |
 | **Bundle export** (`app.assemble.bundle`) | `zipfile.ZIP_DEFLATED` package: both `.docx` + JSON dumps of every validator + full fact-provenance ledger + review audit trail + manifest with `regulation`, `amended_through`, `schema_version`, `reviewed_by_human`. Gated by the certification lock. | None. Pure packaging. |
 | **Litigation lookup** (`app.intake.litigation`) | `MockLitigationConnector` loads `data/demo_company/litigation_records.json` for entities containing `"sunrise agrotech"`. Missing file / bad JSON returns `[]` with a warning log — never crashes. | `IndianKanoonConnector` — a real, working integration against api.indiankanoon.org (published Supreme Court/High Court/tribunal judgments; verified against the API's own reference client and against the live server). `FallbackLitigationConnector` tries it when `LITIGATION_PROVIDER=indiankanoon` + a token are configured, and falls back to the mock on any failure — same pattern as the LLM provider. It indexes decided matters only; there is no free public API over India's live pending-case docket (eCourts/NJDG has none). |
-| **Persistence** (`app.db`, `app.facts_repo`, `app.review.repo`, `app.auth.store`) | Facts, review state, and user accounts are written directly to Postgres on every mutating endpoint — durability comes from Postgres's own write-ahead log, not application code. A backend restart or crash loses nothing; only the process-local generated-sections cache (`app.runtime_cache`) needs a fresh `POST /api/generate`. The audit log (`app.audit`) is the one exception, still a flat encrypted file — see Known Limitations in CLAUDE.md. | None. SQLModel + `asyncpg`, no LLM involvement. |
+| **Persistence** (`app.db`, `app.facts_repo`, `app.review.repo`, `app.auth.store`) | Facts, review state, and user accounts are written directly to Postgres on every mutating endpoint — durability comes from Postgres's own write-ahead log, not application code. A backend restart or crash loses nothing; only the process-local generated-sections cache (`app.runtime_cache`) needs a fresh `POST /api/generate`. The audit log (`app.audit`) is an append-only `audit_events` table in the same database, indexed on the columns `GET /api/audit` filters and orders by. | None. SQLModel + `asyncpg`, no LLM involvement. |
 | **Wizard question copy** (`app.intake.wizard`) | Reads `question_copy.yaml`; per key returns `{prompt, help, input_hint}` in EN or Hindi. Fallback humanises the raw key when the copy map has no entry — never raises. | None. Pure YAML. |
 | **Schema, review workflow, fact store** | Pydantic + integer paise math. No external calls. | None. |
 
@@ -220,9 +252,19 @@ Stated openly, per CLAUDE.md:
 - **Restated financial statements are auditor work by law.** The tool ingests
   and formats them; the coverage score marks them out-of-scope, never
   silently counted.
-- **Litigation lookup is mocked.** No clean free API over Indian court
-  records exists — a real integration is an adapter behind the existing
-  `LitigationConnector` Protocol.
+- **Litigation lookup is real but structurally limited.**
+  `IndianKanoonConnector` genuinely calls api.indiankanoon.org, which indexes
+  *published judgments* only. A clean result means "no published judgment
+  names this entity", not "no litigation exists" — no free public API over
+  India's live pending-case docket exists. Unconfigured, it falls back to an
+  offline mock with no behaviour change to callers.
+- **Rate limiting is per-process.** `app.rate_limit` keeps its windows in
+  memory, so N workers mean N independent budgets and a restart clears them
+  — correct for the single-instance deployment this targets, not for a
+  horizontally-scaled one.
+- **Backups are scripted, restores are not tested.** `backend/scripts/backup.py`
+  takes a real `pg_dump` and prunes to the last N, but there is no WAL
+  archiving, no point-in-time restore, and nothing verifies a restore works.
 - **Schema is human-reviewed but not legally certified.** A faithful
   encoding of the regulation, not legal advice.
 - **Extraction can misread documents.** Mitigated (not eliminated) by
