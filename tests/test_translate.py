@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from app.generate import translate as translate_mod
 from app.generate.translate import translate_section_text
-from app.llm.client import LLMResponse
+from app.llm.client import LLMResponse, LLMUnavailable
 
 
 def run(coro: Any) -> Any:
@@ -146,3 +146,79 @@ def test_translation_with_no_digits_at_all_passes_trivially(monkeypatch: pytest.
     result = run(translate_section_text("entry.a", "This is a simple sentence.", "hi"))
     assert result.translated is True
     assert result.text == "यह एक सरल वाक्य है।"
+
+
+# --------------------------------------------------------------------------
+# Provider selection: Sarvam preferred, general provider as backstop
+# --------------------------------------------------------------------------
+
+
+async def test_sarvam_is_used_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sarvam is Indic-first; the general provider translates Indian languages
+    as a side capability, so it is the fallback, not the default."""
+    monkeypatch.setattr("app.generate.translate.sarvam.is_available", lambda: True)
+
+    async def _sarvam(text: str, lang: str) -> str:
+        return "अंक 12.50 करोड़"
+
+    monkeypatch.setattr("app.generate.translate.sarvam.translate", _sarvam)
+
+    result = await translate_section_text("e1", "Issue size is Rs 12.50 crore.", "hi")
+    assert result.translated is True
+    assert result.text == "अंक 12.50 करोड़"
+
+
+async def test_falls_through_to_the_general_provider_when_sarvam_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This feature has no deterministic fallback at all, so a second-choice
+    translation beats none."""
+    monkeypatch.setattr("app.generate.translate.sarvam.is_available", lambda: True)
+
+    async def _boom(text: str, lang: str) -> str:
+        raise LLMUnavailable("sarvam down")
+
+    monkeypatch.setattr("app.generate.translate.sarvam.translate", _boom)
+
+    async def _general(**_kwargs: object) -> LLMResponse:
+        return LLMResponse(text="अंक 12.50 करोड़ (सामान्य)", provider="test", model="test")
+
+    monkeypatch.setattr("app.generate.translate.grounded_complete", _general)
+
+    result = await translate_section_text("e1", "Issue size is Rs 12.50 crore.", "hi")
+    assert result.translated is True
+    assert "सामान्य" in result.text
+
+
+async def test_both_providers_down_shows_the_english_original(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.generate.translate.sarvam.is_available", lambda: True)
+
+    async def _boom(*_a: object, **_k: object) -> object:
+        raise LLMUnavailable("down")
+
+    monkeypatch.setattr("app.generate.translate.sarvam.translate", _boom)
+    monkeypatch.setattr("app.generate.translate.grounded_complete", _boom)
+
+    english = "Issue size is Rs 12.50 crore."
+    result = await translate_section_text("e1", english, "hi")
+    assert result.translated is False
+    assert result.text == english
+
+
+async def test_a_sarvam_translation_inventing_a_number_is_still_discarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The number guard applies whichever provider produced the text."""
+    monkeypatch.setattr("app.generate.translate.sarvam.is_available", lambda: True)
+
+    async def _wrong_number(text: str, lang: str) -> str:
+        return "अंक 99.99 करोड़"
+
+    monkeypatch.setattr("app.generate.translate.sarvam.translate", _wrong_number)
+
+    english = "Issue size is Rs 12.50 crore."
+    result = await translate_section_text("e1", english, "hi")
+    assert result.translated is False
+    assert result.text == english
