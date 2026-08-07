@@ -10,6 +10,118 @@
 # in plain first-time-issuer language: no jargon, no clause numbers, no acronyms
 # without a short expansion.
 
+basic_eps:
+  en:
+    prompt: "What is your earnings per share (EPS) for the most recent financial year?"
+    help: "Profit after tax divided by the number of equity shares — in rupees per share, from your restated financial statements. Your auditor will have this figure. It is what the price-to-earnings ratio is worked out from."
+  hi:
+    prompt: "पिछले वित्तीय वर्ष के लिए आपकी प्रति शेयर आय (EPS) कितनी है?"
+    help: "कर-पश्चात लाभ को इक्विटी शेयरों की संख्या से भाग देकर — रुपये प्रति शेयर में, आपके पुनर्निर्धारित वित्तीय विवरणों से। यह आँकड़ा आपके ऑडिटर के पास होगा। इसी से मूल्य-आय अनुपात निकलता है।"
+
+company_cin:
+  en:
+    prompt: "What is your company's CIN (Corporate Identity Number)?"
+    help: "The 21-character number the Registrar of Companies gave you at incorporation — printed on your certificate of incorporation and on every MCA filing. Shape: U01100MH2015PLC123456."
+  hi:
+    prompt: "आपकी कंपनी का CIN (कॉर्पोरेट पहचान संख्या) क्या है?"
+    help: "21 अक्षरों की वह संख्या जो निगमन के समय कंपनी रजिस्ट्रार ने दी थी — यह आपके निगमन प्रमाणपत्र और हर MCA फाइलिंग पर छपी होती है। स्वरूप: U01100MH2015PLC123456।"
+
+company_gstin:
+  en:
+    prompt: "What is your company's GSTIN?"
+    help: "The 15-character GST registration number for the state your registered office is in. It starts with your state code and contains your PAN. Leave blank only if the company genuinely is not GST-registered."
+  hi:
+    prompt: "आपकी कंपनी का GSTIN क्या है?"
+    help: "जिस राज्य में आपका पंजीकृत कार्यालय है, उसके लिए 15 अक्षरों की GST पंजीकरण संख्या। यह आपके राज्य कोड से शुरू होती है और उसमें आपका PAN शामिल होता है। केवल तभी खाली छोड़ें जब कंपनी वास्तव में GST-पंजीकृत न हो।"
+
+company_pan:
+  en:
+    prompt: "What is your company's PAN?"
+    help: "The 10-character Permanent Account Number from the Income Tax Department. For a company the fourth character is C. We check the format only — we do not verify it against any government record."
+  hi:
+    prompt: "आपकी कंपनी का PAN क्या है?"
+    help: "आयकर विभाग द्वारा जारी 10 अक्षरों की स्थायी खाता संख्या। कंपनी के लिए चौथा अक्षर C होता है। हम केवल स्वरूप जाँचते हैं — किसी सरकारी अभिलेख से मिलान नहीं करते।"
+
+face_value_paise:
+  en:
+    prompt: "What is the face value of one equity share?"
+    help: "The nominal value printed on the share, set in your Memorandum of Association — commonly Rs 10 for an SME issue. This is not the price you are selling at; shares cannot lawfully be issued below face value."
+  hi:
+    prompt: "एक इक्विटी शेयर का अंकित मूल्य क्या है?"
+    help: "शेयर पर अंकित नाममात्र मूल्य, जो आपके मेमोरेंडम ऑफ़ एसोसिएशन में तय है — SME निर्गम में प्रायः 10 रुपये। यह वह क़ीमत नहीं है जिस पर आप बेच रहे हैं; क़ानूनन शेयर अंकित मूल्य से कम पर जारी नहीं हो सकते।"
+
+industry_pe_ratio:
+  en:
+    prompt: "What is the average price-to-earnings (P/E) ratio for your industry?"
+    help: "The typical P/E of listed companies in your line of business — take it from the peer comparison you gave earlier. If your own issue is priced far above this, you will be asked to justify why."
+  hi:
+    prompt: "आपके उद्योग का औसत मूल्य-आय (P/E) अनुपात क्या है?"
+    help: "आपके व्यवसाय क्षेत्र की सूचीबद्ध कंपनियों का सामान्य P/E — इसे पहले दी गई समकक्ष तुलना से लीजिए। यदि आपका निर्गम इससे बहुत ऊँचे मूल्य पर है, तो कारण बताना होगा।"
+
+issue_price_paise:
+  en:
+    prompt: "At what price are you issuing each equity share?"
+    help: "The price per share investors will pay. If you have set a price band, use the upper end (the cap price). It must be at least the face value."
+  hi:
+    prompt: "आप प्रत्येक इक्विटी शेयर किस मूल्य पर जारी कर रहे हैं?"
+    help: "वह प्रति शेयर मूल्य जो निवेशक चुकाएँगे। यदि आपने मूल्य दायरा तय किया है, तो उसका ऊपरी सिरा लिखिए। यह अंकित मूल्य से कम नहीं हो सकता।"
+
+pe_ratio:
+  en:
+    prompt: "What price-to-earnings (P/E) ratio does your issue price work out to?"
+    help: "Issue price divided by earnings per share. We recompute this from the two figures you gave and flag it if they disagree — a mismatch here is among the first things an exchange reviewer checks."
+  hi:
+    prompt: "आपके निर्गम मूल्य से कौन-सा मूल्य-आय (P/E) अनुपात बनता है?"
+    help: "निर्गम मूल्य को प्रति शेयर आय से भाग देने पर। हम इसे आपके दिए दो आँकड़ों से दोबारा गणना करते हैं और असहमति होने पर चिह्नित करते हैं — एक्सचेंज समीक्षक सबसे पहले यही जाँचते हैं।"
+
+post_issue_capital_paise:
+  en:
+    prompt: "What will your total paid-up equity capital be after the issue?"
+    help: "Existing paid-up capital plus the fresh capital this issue raises. The promoters' minimum contribution is measured as a percentage of this figure, so it has to be right."
+  hi:
+    prompt: "निर्गम के बाद आपकी कुल प्रदत्त इक्विटी पूँजी कितनी होगी?"
+    help: "मौजूदा प्रदत्त पूँजी और इस निर्गम से जुटने वाली नई पूँजी का योग। प्रवर्तकों का न्यूनतम अंशदान इसी आँकड़े के प्रतिशत में मापा जाता है, इसलिए यह सही होना चाहिए।"
+
+promoter_contribution_paise:
+  en:
+    prompt: "How much equity capital are the promoters contributing?"
+    help: "The promoters' own holding in the company after the issue, in rupees. SEBI requires this to be at least 20% of the post-issue capital, and it stays locked in for three years."
+  hi:
+    prompt: "प्रवर्तक कितनी इक्विटी पूँजी का अंशदान कर रहे हैं?"
+    help: "निर्गम के बाद कंपनी में प्रवर्तकों की अपनी हिस्सेदारी, रुपये में। SEBI के अनुसार यह निर्गम-पश्चात पूँजी का कम से कम 20% होनी चाहिए और तीन वर्ष तक लॉक-इन रहती है।"
+
+promoter_lock_in_years:
+  en:
+    prompt: "For how many years is the promoters' minimum contribution locked in?"
+    help: "The period the promoters cannot sell their minimum contribution for, counted from the date of allotment. SEBI's minimum is three years; anything shorter will be flagged."
+  hi:
+    prompt: "प्रवर्तकों का न्यूनतम अंशदान कितने वर्षों के लिए लॉक-इन है?"
+    help: "आवंटन की तारीख से वह अवधि जिसमें प्रवर्तक अपना न्यूनतम अंशदान बेच नहीं सकते। SEBI की न्यूनतम अवधि तीन वर्ष है; इससे कम होने पर चिह्नित किया जाएगा।"
+
+related_party_names:
+  en:
+    prompt: "Which parties related to the company did you transact with?"
+    help: "Name every person or entity connected to your promoters, directors or their families that the company bought from, sold to, lent to or borrowed from. One name per line. Each name should also appear in your promoter group list."
+  hi:
+    prompt: "कंपनी ने किन संबंधित पक्षों के साथ लेन-देन किया?"
+    help: "अपने प्रवर्तकों, निदेशकों या उनके परिवारों से जुड़े हर व्यक्ति या संस्था का नाम लिखिए जिससे कंपनी ने ख़रीदा, बेचा, उधार दिया या लिया हो। प्रति पंक्ति एक नाम। हर नाम आपकी प्रवर्तक समूह सूची में भी होना चाहिए।"
+
+rpt_materiality_policy:
+  en:
+    prompt: "What is your board's policy on when a related party transaction counts as material?"
+    help: "The threshold above which such a transaction needs Audit Committee or shareholder approval — usually a percentage of turnover or a rupee amount. If your board has not adopted one yet, say so; your merchant banker will raise it."
+  hi:
+    prompt: "संबंधित पक्ष लेन-देन कब महत्वपूर्ण माना जाए — इस पर आपके बोर्ड की नीति क्या है?"
+    help: "वह सीमा जिसके ऊपर ऐसे लेन-देन को ऑडिट समिति या शेयरधारकों की स्वीकृति चाहिए — प्रायः टर्नओवर का प्रतिशत या रुपये की राशि। यदि बोर्ड ने अभी नीति नहीं अपनाई है, तो वही लिखिए; आपका मर्चेंट बैंकर इसे उठाएगा।"
+
+rpt_total_amount_paise:
+  en:
+    prompt: "What was the total value of related party transactions in the last financial year?"
+    help: "Add up every transaction with related parties for the year — purchases, sales, loans, guarantees, remuneration. Your auditor reports this figure in the notes to the accounts."
+  hi:
+    prompt: "पिछले वित्तीय वर्ष में संबंधित पक्ष लेन-देन का कुल मूल्य कितना था?"
+    help: "वर्ष भर के सभी संबंधित-पक्ष लेन-देन जोड़िए — ख़रीद, बिक्री, ऋण, गारंटी, पारिश्रमिक। आपका ऑडिटर यह आँकड़ा खातों की टिप्पणियों में देता है।"
+
 applicable_regulations[]:
   en:
     prompt: "Which laws and regulations most affect how your business runs?"

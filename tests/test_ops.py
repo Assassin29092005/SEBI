@@ -170,8 +170,11 @@ def test_classify_applies_the_tightest_matching_limit() -> None:
     assert _classify("/api/auth/login", "POST")[1] == 10
     assert _classify("/api/generate", "POST")[1] == 5
     assert _classify("/api/regulatory-watch/check", "POST")[1] == 3
+    # Fact writes are bursty by nature (confirm-per-fact), so they get a
+    # bulk-sized budget rather than the one-at-a-time default.
+    assert _classify("/api/facts/abc-123/confirm", "POST")[1] == 240
     # Unlisted route falls back to the default budget.
-    assert _classify("/api/facts", "GET") == ("default", 60)
+    assert _classify("/api/gaps", "GET") == ("default", 60)
 
 
 def test_each_limit_gets_its_own_bucket() -> None:

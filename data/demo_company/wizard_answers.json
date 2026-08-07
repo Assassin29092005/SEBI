@@ -1,10 +1,22 @@
 {
   "aoa_main_provisions": "The Articles of Association provide that every member has one vote per equity share held; dividends are declared by the members in general meeting not exceeding the amount recommended by the Board; the company has a first and paramount lien on partly paid shares for unpaid calls; shares may be forfeited for non-payment of calls after notice; and shares are freely transferable subject to the provisions of the Companies Act 2013, with the Board empowered to decline registration only on grounds permitted by law.",
   "applicable_regulations[]": [
-    {"regulation": "Fertiliser (Inorganic, Organic or Mixed) (Control) Order, 1985", "relevance": "Manufacture and sale of bio-fertilisers and micronutrient blends requires registration and licensing under the FCO."},
-    {"regulation": "Water (Prevention and Control of Pollution) Act, 1974 and Air (Prevention and Control of Pollution) Act, 1981", "relevance": "Consent to establish and operate the Nashik manufacturing unit from the Maharashtra Pollution Control Board."},
-    {"regulation": "Food Safety and Standards Act, 2006", "relevance": "FSSAI licensing for micronutrient blends intended for the horticulture food chain."},
-    {"regulation": "Insecticides Act, 1968", "relevance": "Applicable to any bio-pesticide adjacent formulations distributed alongside the core product lines."}
+    {
+      "regulation": "Fertiliser (Inorganic, Organic or Mixed) (Control) Order, 1985",
+      "relevance": "Manufacture and sale of bio-fertilisers and micronutrient blends requires registration and licensing under the FCO."
+    },
+    {
+      "regulation": "Water (Prevention and Control of Pollution) Act, 1974 and Air (Prevention and Control of Pollution) Act, 1981",
+      "relevance": "Consent to establish and operate the Nashik manufacturing unit from the Maharashtra Pollution Control Board."
+    },
+    {
+      "regulation": "Food Safety and Standards Act, 2006",
+      "relevance": "FSSAI licensing for micronutrient blends intended for the horticulture food chain."
+    },
+    {
+      "regulation": "Insecticides Act, 1968",
+      "relevance": "Applicable to any bio-pesticide adjacent formulations distributed alongside the core product lines."
+    }
   ],
   "board_of_directors[]": [
     {
@@ -49,9 +61,21 @@
   "director_interests": "The directors are interested to the extent of the sitting fees and remuneration paid, the shareholding disclosed under Capital Structure, and the related-party transactions disclosed under Financial Information. No director has any interest in any property acquired by the company in the two years preceding the date of this draft red herring prospectus.",
   "dividend_policy": "The company has not declared any dividend since incorporation and does not have a formal dividend policy; future dividends will depend on earnings, capital requirements and the expansion plan, and will be recommended by the Board in accordance with the Companies Act 2013.",
   "dividends_paid[]": [
-    {"financial_year": "FY2024", "dividend_per_share_paise": 0, "rate_percent": 0},
-    {"financial_year": "FY2025", "dividend_per_share_paise": 0, "rate_percent": 0},
-    {"financial_year": "FY2026", "dividend_per_share_paise": 0, "rate_percent": 0}
+    {
+      "financial_year": "FY2024",
+      "dividend_per_share_paise": 0,
+      "rate_percent": 0
+    },
+    {
+      "financial_year": "FY2025",
+      "dividend_per_share_paise": 0,
+      "rate_percent": 0
+    },
+    {
+      "financial_year": "FY2026",
+      "dividend_per_share_paise": 0,
+      "rate_percent": 0
+    }
   ],
   "eligibility_confirmation": "The issuer confirms compliance with the eligibility norms under Regulation 229 of the SEBI ICDR Regulations 2018 (as applied to Chapter IX SME issues), including the operating profit condition for three of the last five financial years and the post-issue paid-up capital ceiling applicable to SME exchange listings.",
   "gcp_amount_paise": 150000000,
@@ -132,22 +156,54 @@
     }
   ],
   "major_events[]": [
-    {"year": 2015, "event": "Incorporated as Sunrise Agrotech Private Limited at Mumbai."},
-    {"year": 2018, "event": "Commissioned Nashik manufacturing unit with installed capacity of 3,000 MT per annum."},
-    {"year": 2021, "event": "Entered into supply arrangement with three farmer producer organisations covering 4,200 hectares."},
-    {"year": 2024, "event": "Converted to a public limited company and renamed Sunrise Agrotech Ltd."},
-    {"year": 2026, "event": "Board approved the proposed initial public offering on the SME exchange platform."}
+    {
+      "year": 2015,
+      "event": "Incorporated as Sunrise Agrotech Private Limited at Mumbai."
+    },
+    {
+      "year": 2018,
+      "event": "Commissioned Nashik manufacturing unit with installed capacity of 3,000 MT per annum."
+    },
+    {
+      "year": 2021,
+      "event": "Entered into supply arrangement with three farmer producer organisations covering 4,200 hectares."
+    },
+    {
+      "year": 2024,
+      "event": "Converted to a public limited company and renamed Sunrise Agrotech Ltd."
+    },
+    {
+      "year": 2026,
+      "event": "Board approved the proposed initial public offering on the SME exchange platform."
+    }
   ],
   "material_contracts[]": [
-    {"contract": "Issue Agreement dated 2 June 2026 between the company and Deccan Capital Advisors Private Limited", "parties": "Company; Book Running Lead Manager"},
-    {"contract": "Registrar Agreement dated 2 June 2026 with Konkan Registry Services Private Limited", "parties": "Company; Registrar to the Issue"},
-    {"contract": "Lease deed dated 12 January 2018 with Maharashtra Industrial Development Corporation for the Nashik manufacturing unit", "parties": "Company; MIDC"}
+    {
+      "contract": "Issue Agreement dated 2 June 2026 between the company and Deccan Capital Advisors Private Limited",
+      "parties": "Company; Book Running Lead Manager"
+    },
+    {
+      "contract": "Registrar Agreement dated 2 June 2026 with Konkan Registry Services Private Limited",
+      "parties": "Company; Registrar to the Issue"
+    },
+    {
+      "contract": "Lease deed dated 12 January 2018 with Maharashtra Industrial Development Corporation for the Nashik manufacturing unit",
+      "parties": "Company; MIDC"
+    }
   ],
   "material_documents[]": [
-    {"document": "Certified copies of the Memorandum and Articles of Association, as amended"},
-    {"document": "Board resolution dated 15 April 2026 and shareholders' special resolution dated 20 May 2026 authorising the issue"},
-    {"document": "Restated financial information for FY2024-FY2026 and the examination report of the peer-reviewed statutory auditor"},
-    {"document": "Consents of the directors, lead manager, registrar, statutory auditor and other intermediaries"}
+    {
+      "document": "Certified copies of the Memorandum and Articles of Association, as amended"
+    },
+    {
+      "document": "Board resolution dated 15 April 2026 and shareholders' special resolution dated 20 May 2026 authorising the issue"
+    },
+    {
+      "document": "Restated financial information for FY2024-FY2026 and the examination report of the peer-reviewed statutory auditor"
+    },
+    {
+      "document": "Consents of the directors, lead manager, registrar, statutory auditor and other intermediaries"
+    }
   ],
   "material_litigation[]": [
     {
@@ -220,14 +276,14 @@
       "eps_inr": 5.42,
       "pe_ratio": 22.4,
       "ronw_percent": 14.1,
-      "nav_per_share_inr": 38.60
+      "nav_per_share_inr": 38.6
     },
     {
       "peer_name": "AgriPure Nutrients Ltd",
       "eps_inr": 3.15,
       "pe_ratio": 27.9,
       "ronw_percent": 11.7,
-      "nav_per_share_inr": 27.10
+      "nav_per_share_inr": 27.1
     }
   ],
   "price_band": {
@@ -236,21 +292,37 @@
     "face_value_paise": 1000
   },
   "products_services[]": [
-    {"name": "SunGrow Bio-N", "category": "Nitrogen-fixing bio-fertiliser", "revenue_share_percent": 34.5},
-    {"name": "SunGrow Bio-P", "category": "Phosphate-solubilising bio-fertiliser", "revenue_share_percent": 21.8},
-    {"name": "SunMicro Zn+B", "category": "Zinc and boron micronutrient blend", "revenue_share_percent": 26.3},
-    {"name": "SunMicro Fe+Mn", "category": "Iron and manganese micronutrient blend", "revenue_share_percent": 17.4}
+    {
+      "name": "SunGrow Bio-N",
+      "category": "Nitrogen-fixing bio-fertiliser",
+      "revenue_share_percent": 34.5
+    },
+    {
+      "name": "SunGrow Bio-P",
+      "category": "Phosphate-solubilising bio-fertiliser",
+      "revenue_share_percent": 21.8
+    },
+    {
+      "name": "SunMicro Zn+B",
+      "category": "Zinc and boron micronutrient blend",
+      "revenue_share_percent": 26.3
+    },
+    {
+      "name": "SunMicro Fe+Mn",
+      "category": "Iron and manganese micronutrient blend",
+      "revenue_share_percent": 17.4
+    }
   ],
   "promoter_group_entities[]": [
     {
       "name": "Menon Family Trust",
       "relationship": "Family trust of the promoter",
-      "shareholding_percent_pre_issue": 4.20
+      "shareholding_percent_pre_issue": 4.2
     },
     {
       "name": "Sunrise Seeds LLP",
       "relationship": "LLP in which promoter is designated partner",
-      "shareholding_percent_pre_issue": 0.00
+      "shareholding_percent_pre_issue": 0.0
     }
   ],
   "promoter_interests": "The promoters are interested in the company to the extent of their shareholding, remuneration drawn as executive directors, and rentals received in respect of the Andheri office premises leased to the company on arm's-length terms.",
@@ -258,13 +330,13 @@
     {
       "promoter": "Rakesh Menon",
       "shares_held_pre_issue": 4200000,
-      "percent_pre_issue": 42.00,
+      "percent_pre_issue": 42.0,
       "lock_in_years": 3
     },
     {
       "promoter": "Anita Menon",
       "shares_held_pre_issue": 2100000,
-      "percent_pre_issue": 21.00,
+      "percent_pre_issue": 21.0,
       "lock_in_years": 3
     }
   ],
@@ -345,5 +417,22 @@
       "shareholding_percent": 100.0,
       "nature_of_business": "Last-mile distribution of bio-fertiliser products"
     }
-  ]
+  ],
+  "company_cin": "U01100MH2015PLC000000",
+  "company_pan": "AAACS0000A",
+  "company_gstin": "27AAACS0000A1Z5",
+  "post_issue_capital_paise": 50000000000,
+  "promoter_contribution_paise": 15000000000,
+  "promoter_lock_in_years": 3,
+  "face_value_paise": 1000,
+  "issue_price_paise": 9000,
+  "basic_eps": "7.20",
+  "pe_ratio": "12.50",
+  "industry_pe_ratio": "18.60",
+  "related_party_names": [
+    "Menon Family Trust",
+    "Sunrise Seeds LLP"
+  ],
+  "rpt_total_amount_paise": 18400000,
+  "rpt_materiality_policy": "Transactions exceeding 10% of consolidated annual turnover, or Rs 1 crore, whichever is lower, are treated as material and placed before the Audit Committee."
 }

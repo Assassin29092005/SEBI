@@ -61,10 +61,16 @@ def check_lock_in(store: FactStore) -> list[LockInFinding]:
     promoter_contribution = _get_paise(store, "promoter_contribution_paise")
     post_issue_capital = _get_paise(store, "post_issue_capital_paise")
 
+    # Reg. 236(1) is a percentage of *post-issue capital*; issue size is only
+    # a fallback proxy when that hasn't been confirmed yet. Gate on whichever
+    # base is actually available, not on issue size specifically — gating on
+    # issue size meant a draft with post-issue capital and promoter
+    # contribution both confirmed got no 20%-floor check at all, and a
+    # blocker-severity rule silently not running is worse than it failing.
+    base = post_issue_capital or issue_size
+
     # Check minimum promoter contribution
-    if issue_size is not None and promoter_contribution is not None:
-        # Use post-issue capital if available, otherwise approximate from issue size
-        base = post_issue_capital if post_issue_capital else issue_size
+    if base is not None and promoter_contribution is not None:
         if base > 0:
             contribution_pct = (promoter_contribution * 100) // base
             if contribution_pct < _MIN_PROMOTER_CONTRIBUTION_PCT:
@@ -89,13 +95,14 @@ def check_lock_in(store: FactStore) -> list[LockInFinding]:
                     severity="minor",
                     clause_ref="ICDR Reg. 236(1)",
                 ))
-    elif issue_size is not None and promoter_contribution is None:
+    elif base is not None and promoter_contribution is None:
         findings.append(LockInFinding(
             kind="missing_promoter_contribution",
             detail=(
-                "Issue size is confirmed but promoter contribution amount is not. "
-                "Promoter contribution must be disclosed and must be at least "
-                "20% of post-issue capital per ICDR Reg. 236(1)."
+                "Issue size or post-issue capital is confirmed but the promoter "
+                "contribution amount is not. Promoter contribution must be "
+                "disclosed and must be at least 20% of post-issue capital per "
+                "ICDR Reg. 236(1)."
             ),
             severity="material",
             clause_ref="ICDR Reg. 236(1)",
@@ -107,7 +114,7 @@ def check_lock_in(store: FactStore) -> list[LockInFinding]:
                     "pre_ipo_lock_in_years", "pre_ipo_lock_in_period"}
     has_lock_in_disclosure = any(f.key in lock_in_keys for f in confirmed)
 
-    if not has_lock_in_disclosure and issue_size is not None:
+    if not has_lock_in_disclosure and base is not None:
         findings.append(LockInFinding(
             kind="missing_lock_in_disclosure",
             detail=(

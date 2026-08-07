@@ -30,6 +30,23 @@
 # covers para (8)(A)-(B)) where a first-time SME promoter would reasonably
 # answer them together in one wizard flow.
 #
+# 2026-08-07 (v0.5.0): no new entries — four EXISTING entries gained
+# finer-grained required_facts so the deterministic compliance validators
+# (app.validate.{identifiers,rpt,lock_in,pricing}) have facts to read and the
+# wizard actually asks for them. No clause_ref changed and no new disclosure
+# requirement was introduced; each key sits under the requirement that already
+# cites it:
+#   general_info.issuer_particulars  -> company_cin/pan/gstin  (para (7)(A))
+#   capital_structure.promoter_shareholding -> post_issue_capital_paise,
+#       promoter_contribution_paise, promoter_lock_in_years (the Reg. 236(1)
+#       floor and Reg. 238–242 lock-in its clause_ref already cited)
+#   objects.basis_for_issue_price -> face_value_paise, issue_price_paise,
+#       basic_eps, pe_ratio, industry_pe_ratio (para (9)(K) names adjusted EPS
+#       and P/E relative to industry peers in terms)
+#   financials.related_party_transactions -> related_party_names,
+#       rpt_total_amount_paise, rpt_materiality_policy (para (11)(A)(g))
+# PENDING the line-by-line human review pass, same as the v0.4.0 six below.
+#
 # 2026-07-10 (v0.4.0): six entries added to close the benchmark's not_encoded
 # chapters (general.conventions_presentation, general.forward_looking_statements,
 # business.key_regulations, offering.foreign_ownership_restrictions,
@@ -43,7 +60,7 @@
 header:
   regulation: "SEBI (Issue of Capital and Disclosure Requirements) (ICDR) Regulations, 2018 — Chapter IX (SME IPOs); disclosures per Schedule VI Part A as applied by Reg. 246(2)(b); draft abridged prospectus per Schedule VI Part E as applied by Reg. 246(3)"
   amended_through: "2026-03-21"   # ICDR (Amendment) Regulations, 2026 — notified 2026-03-16
-  schema_version: "0.4.0"
+  schema_version: "0.5.0"
   reviewed_by_human: true         # human review pass completed 2026-07-03; see note above
 
 entries:
@@ -173,6 +190,9 @@ entries:
     applicability: always
     required_facts:
       - issuer_identity
+      - company_cin
+      - company_pan
+      - company_gstin
       - registered_office
       - board_of_directors[]
       - compliance_officer
@@ -210,6 +230,9 @@ entries:
     required_facts:
       - promoters[]
       - promoter_shareholding[]
+      - post_issue_capital_paise
+      - promoter_contribution_paise
+      - promoter_lock_in_years
     responsible_role: promoter
     severity: blocker
     output_targets: [drhp, abridged]
@@ -248,6 +271,11 @@ entries:
       - restated_financials_upload
       - peer_comparison[]
       - price_band
+      - face_value_paise
+      - issue_price_paise
+      - basic_eps
+      - pe_ratio
+      - industry_pe_ratio
     responsible_role: promoter
     severity: blocker
     output_targets: [drhp]
@@ -367,6 +395,9 @@ entries:
     applicability: always
     required_facts:
       - rpt_summary
+      - related_party_names
+      - rpt_total_amount_paise
+      - rpt_materiality_policy
       - restated_financials_upload
     responsible_role: promoter
     severity: material

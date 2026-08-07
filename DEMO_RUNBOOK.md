@@ -46,12 +46,12 @@ dev database (`docker compose exec postgres dropdb -U drhp drhp_studio &&
 docker compose exec postgres createdb -U drhp drhp_studio && (cd backend &&
 alembic upgrade head)`) before re-registering demo accounts.
 
-## Key numbers (from a green build, `schema_version: 0.4.0`)
+## Key numbers (from a green build, `schema_version: 0.5.0`)
 
 | Metric | Value |
 |---|---|
 | Backend tests passing | 319 passed, 3 skipped (322 test functions total), `ruff check backend` clean — live-verified against a real Postgres instance in this merge |
-| Checklist entries | 32 (all non-stub; six v0.4.0 additions pending the line-by-line human review pass — see the schema header) |
+| Checklist entries | 32 (all non-stub; the six v0.4.0 additions and the v0.5.0 required_facts additions are pending the line-by-line human review pass — see the schema header) |
 | Regulation pinned | ICDR as amended through `2026-03-21` |
 | Reference filings benchmarked | 4 (public NSE Emerge DRHPs, spanning two filing quarters and sectors) |
 | Chapter map vs. Harit Industries Ltd | 100% (31/31 in-scope) |
@@ -303,6 +303,13 @@ Quote these faithfully — never soften them:
   budgets; there is no WAL archiving or point-in-time restore and nothing
   verifies a restore works; and there is still no multi-tenancy — one
   deployment serves one issuer's team.
+- **"Can the tool check a PAN or a lock-in period?"** Yes — four
+  deterministic validators (statutory identifier formats, related-party
+  cross-check, promoter contribution and lock-in against Reg. 236/238-241,
+  and pricing consistency), and the wizard asks for the facts they need as
+  of v0.5.0. The identifier check is **format only**: it catches typos,
+  truncation and OCR misreads that break the structure, and does not claim
+  the identifier is registered with any authority.
 - **"Who verified your schema?"** Human-reviewed against the consolidated
   ICDR text pinned in `data/regulation/`; `reviewed_by_human: true` in the
   schema header. The six v0.4.0 entries had their clause refs verified
