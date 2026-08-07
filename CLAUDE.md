@@ -8,10 +8,12 @@ Backend (from repo root; package root is `backend/`, tests live in `tests/` at r
 
 ```bash
 pip install -e "backend[dev]"        # install backend + dev deps (pytest, ruff, sqlmodel, alembic, asyncpg)
-docker compose up -d                 # start Postgres (repo-root docker-compose.yml)
+docker compose up -d                 # start Postgres on localhost:5433 (NOT 5432 — that port is
+                                     #   left to whatever Postgres the machine already runs; the
+                                     #   checked-in defaults already point at 5433, nothing to configure)
 cd backend && alembic upgrade head   # apply migrations to the dev DB (drhp_studio); cd back to repo root after
 docker compose exec postgres createdb -U drhp drhp_studio_test  # one-time: create the test DB
-DATABASE_URL=postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio_test \
+DATABASE_URL=postgresql+asyncpg://drhp:drhp_dev_password@localhost:5433/drhp_studio_test \
     (cd backend && alembic upgrade head)                          # one-time: migrate the test DB too
 python -m pytest tests/ -q           # full suite (needs the test DB above; see conftest.py's db_session fixture)
 python -m pytest tests/test_facts.py -q            # one file

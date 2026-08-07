@@ -127,7 +127,7 @@ filing quarters and sectors: 100% in-scope chapter match on every one
   uploads (gitignored; see `app.crypto`, `app.intake.vault`). Facts, review
   state, user accounts, and the access-log audit trail all live in Postgres,
   not on disk — see `app.db`, `app.audit`.
-- `tests/` — 409 backend test functions (needs a running Postgres — see below).
+- `tests/` — 410 backend test functions (needs a running Postgres — see below).
 - `Dockerfile` — one deployable image: backend, built frontend (served by the
   API itself), and Tesseract. `.github/workflows/ci.yml` builds it on every
   push alongside the test/lint/type-check jobs.
@@ -137,7 +137,7 @@ filing quarters and sectors: 100% in-scope chapter match on every one
 ```bash
 # Backend
 pip install -e "backend[dev]"
-docker compose up -d                                   # Postgres (repo-root docker-compose.yml)
+docker compose up -d                                   # Postgres on localhost:5433 (see note below)
 cd backend && alembic upgrade head && cd ..             # apply migrations
 uvicorn app.main:app --reload --app-dir backend         # 127.0.0.1:8000
 ```
@@ -162,6 +162,25 @@ itself, so there is no second process and no separate web server:
 docker build -t drhp-studio .
 docker run --rm --network sebi_default   -e DATABASE_URL=postgresql+asyncpg://drhp:drhp_dev_password@postgres:5432/drhp_studio   -p 8000:8000 drhp-studio                             # app on :8000, no hot reload
 ```
+
+### Why port 5433
+
+The container publishes Postgres on **5433**, not the default 5432. 5432
+belongs to whatever Postgres your machine already runs — a native install,
+pgAdmin's default connection, another project's container. Squatting on it
+makes those fail with `password authentication failed for user "postgres"`,
+which reads like a credentials problem and sends you looking in entirely the
+wrong place.
+
+Nothing needs configuring for this: `config.py` and `conftest.py` already
+default to 5433, so `docker compose up -d` plus `alembic upgrade head` is
+still the whole setup. Inside the compose network Postgres still listens on
+5432, so `docker compose exec` and container-to-container URLs are unchanged.
+
+To browse the database in pgAdmin, add a server with host `localhost`, port
+`5433`, user `drhp`, password `drhp_dev_password`, databases `drhp_studio`
+and `drhp_studio_test`. Your own `postgres` server on 5432 keeps working
+alongside it.
 
 Opening the frontend directly: the app now starts on a sign-in screen.
 Register a promoter account there to walk the wizard yourself, or register a

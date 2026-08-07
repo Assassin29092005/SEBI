@@ -38,7 +38,7 @@ DEFAULT_BACKUP_DIR = REPO_ROOT / "backups"
 DEFAULT_KEEP = 7
 
 # Matches docker-compose.yml defaults — production overrides via env vars
-DEFAULT_DB_URL = "postgresql://drhp:drhp_dev_password@localhost:5432/drhp_studio"
+DEFAULT_DB_URL = "postgresql://drhp:drhp_dev_password@localhost:5433/drhp_studio"
 
 
 def parse_db_url(url: str) -> dict[str, str]:

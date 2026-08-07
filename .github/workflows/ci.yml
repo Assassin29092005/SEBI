@@ -16,8 +16,10 @@ jobs:
           POSTGRES_USER: drhp
           POSTGRES_PASSWORD: drhp_dev_password
           POSTGRES_DB: drhp_studio
+        # 5433 mirrors docker-compose.yml so the checked-in defaults in
+        # config.py and conftest.py work here with no env overrides.
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U drhp -d drhp_studio"
           --health-interval 5s
@@ -47,7 +49,7 @@ jobs:
         run: pip install -e "backend[dev]"
 
       - name: Create test database
-        run: PGPASSWORD=drhp_dev_password psql -h localhost -U drhp -d drhp_studio -c "CREATE DATABASE drhp_studio_test"
+        run: PGPASSWORD=drhp_dev_password psql -h localhost -p 5433 -U drhp -d drhp_studio -c "CREATE DATABASE drhp_studio_test"
 
       - name: Apply migrations (dev DB)
         working-directory: backend
@@ -56,7 +58,7 @@ jobs:
       - name: Apply migrations (test DB)
         working-directory: backend
         env:
-          DATABASE_URL: postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio_test
+          DATABASE_URL: postgresql+asyncpg://drhp:drhp_dev_password@localhost:5433/drhp_studio_test
         run: python -m alembic upgrade head
 
       - name: Run tests
