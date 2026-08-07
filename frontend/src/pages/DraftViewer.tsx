@@ -43,6 +43,7 @@ import {
   type SuggestedFix,
   type TranslatedSection,
 } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import ClauseTextViewer from "../components/ClauseTextViewer";
 import DocumentSnippetViewer from "../components/DocumentSnippetViewer";
 import TextDiff from "../components/TextDiff";
@@ -1131,6 +1132,17 @@ function CoverageWidget({ report }: { report: CoverageReport }) {
 // --------------------------------------------------------------------------
 
 export default function DraftViewer() {
+  // The one page all three roles share, so anything the server restricts to
+  // one role has to be gated per-control here, not just per-route in App.tsx.
+  const { user } = useAuth();
+  const isPromoter = user?.role === "promoter";
+
+  // Downloads fail loudly rather than silently: apiDownloadFile throws on a
+  // non-2xx, and nothing used to catch it, so a blocked export looked like a
+  // dead button. The common case is 409 — the certification lock — which is
+  // a feature, not a failure, and deserves saying so.
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
   const [sections, setSections] = useState<GeneratedSection[]>([]);
   const [sectionsState, setSectionsState] = useState<LoadState>("idle");
   const [sectionsError, setSectionsError] = useState<string | null>(null);
@@ -1362,6 +1374,22 @@ export default function DraftViewer() {
     }
   };
 
+  const download = useCallback(async (path: string, filename: string) => {
+    setDownloadError(null);
+    try {
+      await apiDownloadFile(path, filename);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // The certification lock is the whole point of the banker workflow —
+      // report it as the deliberate gate it is, not as a broken download.
+      setDownloadError(
+        message.includes("409")
+          ? "Not yet available. The exchange-ready documents unlock once a merchant banker has certified every blocker-severity section — that lock is the due-diligence guarantee. Sign in as a banker to review and certify."
+          : `Download failed: ${message}`,
+      );
+    }
+  }, []);
+
   const runArithmetic = useCallback(async () => {
     setArithmeticState("loading");
     try {
@@ -1503,30 +1531,42 @@ export default function DraftViewer() {
       </header>
 
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <button
-          type="button"
-          className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300"
-          onClick={onGenerate}
-          disabled={generateState === "loading"}
-        >
-          {generateState === "loading" ? "Generating…" : "Generate draft"}
-        </button>
+        {/* Generating rewrites the draft from confirmed facts, so it is the
+            promoter's action alone — POST /api/generate is promoter-only.
+            This page is shared by all three roles, so the control has to be
+            gated here too: an auditor or banker clicking it got a bare
+            "Generation failed: POST /api/generate → 403". */}
+        {isPromoter && (
+          <button
+            type="button"
+            className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:bg-blue-300"
+            onClick={onGenerate}
+            disabled={generateState === "loading"}
+          >
+            {generateState === "loading" ? "Generating…" : "Generate draft"}
+          </button>
+        )}
         <button
           type="button"
           className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-800 hover:bg-gray-50"
-          onClick={() => void apiDownloadFile(assembleUrl("drhp"), "drhp.docx")}
+          onClick={() => void download(assembleUrl("drhp"), "drhp.docx")}
         >
           Download DRHP (.docx)
         </button>
         <button
           type="button"
           className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-800 hover:bg-gray-50"
-          onClick={() => void apiDownloadFile(assembleUrl("abridged"), "abridged_prospectus.docx")}
+          onClick={() => void download(assembleUrl("abridged"), "abridged_prospectus.docx")}
         >
           Download draft abridged prospectus (.docx)
         </button>
         <StatusPill state={sectionsState} label="draft sections" />
         <StatusPill state={factsState} label="facts" />
+        {downloadError ? (
+          <p className="w-full text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-2.5" role="alert">
+            {downloadError}
+          </p>
+        ) : null}
         {generateState === "error" && generateError ? (
           <span className="text-xs text-red-600">Generation failed: {generateError}</span>
         ) : null}
@@ -1867,8 +1907,11 @@ export default function DraftViewer() {
 
                 <div id="panel-iterative-examiner">
                   <div className="flex items-center gap-2 mb-2">
+                    {/* Same restriction as Generate: this one can rewrite
+                        section text, so it is promoter-only server-side. */}
                     <button
                       type="button"
+                      hidden={!isPromoter}
                       className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
                       onClick={runIterativeExaminer}
                       disabled={iterativeState === "loading"}

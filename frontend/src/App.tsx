@@ -196,6 +196,20 @@ function AuthedApp() {
         )}
       </header>
       <main id="main-content" className="p-4 sm:p-6 max-w-4xl mx-auto">
+        {/* One deployment serves one issuer's promoter/auditor/banker team —
+            there is no company_id anywhere in the schema, by design (see
+            CLAUDE.md). Everyone signed in here shares one fact store, which is
+            correct for the team preparing one offer document and surprising
+            for anyone who assumed an account meant a private workspace. Said
+            here rather than only in the docs, because the person it affects
+            is the one looking at the screen. */}
+        <p className="mb-4 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          <span className="font-medium">Shared workspace.</span> This instance holds{" "}
+          <span className="font-medium">one issuer&rsquo;s</span> draft. Everyone signed in —
+          promoter, auditor and merchant banker — works on the same fact store and sees the
+          same answers. Separate companies need separate deployments.
+        </p>
+
         <Routes>
           {/* Root is a redirect, never a page — otherwise every role lands on
               whatever happens to be mounted at "/". */}
