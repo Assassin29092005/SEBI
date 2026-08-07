@@ -1076,16 +1076,37 @@ function ConfirmPanel({
   );
 }
 
+/** Best human label for one value inside a structured answer.
+ *
+ * Several ontology keys hold objects, not scalars — `registrar_to_issue` is
+ * `{name, sebi_registration, address, …}`, `lead_managers[]` is a list of
+ * those. `String()` on one of those renders the literal text
+ * "[object Object]", which is what the echo under a confirmed answer used to
+ * show. Prefer whichever identifying field the object actually carries, and
+ * fall back to compact JSON rather than a placeholder that tells the
+ * promoter nothing about what they saved.
+ */
+function labelOf(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return value.map(labelOf).join(", ");
+
+  const record = value as Record<string, unknown>;
+  for (const field of ["name", "title", "label", "description"]) {
+    if (typeof record[field] === "string" && record[field]) return record[field] as string;
+  }
+  // No obvious label — show the real content compactly. Long enough to be
+  // useful, short enough not to swamp the confirmation box.
+  const json = JSON.stringify(value);
+  return json.length > 160 ? `${json.slice(0, 160)}…` : json;
+}
+
 // Render a fact value for display, respecting the money → paise convention.
 function renderValue(q: WizardQuestion, value: unknown): string {
   if (q.input_hint === "money" && typeof value === "number" && Number.isInteger(value)) {
     return formatPaise(value);
   }
-  if (Array.isArray(value)) {
-    return value.map((v) => String(v)).join(", ");
-  }
-  if (value === null || value === undefined) return "—";
-  return String(value);
+  return labelOf(value);
 }
 
 // ---------------------------------------------------------------------------
