@@ -50,6 +50,22 @@ def _no_live_llm(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(settings, "groq_api_key", "")
 
 
+@pytest.fixture(autouse=True)
+def _no_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disable rate limiting for the suite (see ``app.rate_limit``).
+
+    The limiter's per-minute windows are wall-clock, but the suite fires
+    hundreds of requests in seconds — every test after the first few would
+    start collecting 429s purely because the tests are fast. ``test_rate_limit.py``
+    re-enables it explicitly for the cases that actually exercise it.
+    """
+    from app.config import settings
+    from app.rate_limit import reset_rate_limiter
+
+    monkeypatch.setattr(settings, "rate_limit_enabled", False)
+    reset_rate_limiter()
+
+
 # NullPool: pytest-asyncio gives each test function its own event loop by
 # default, but asyncpg connections are bound to the loop they were opened
 # on — a pooled connection reused across tests (i.e. across loops) raises

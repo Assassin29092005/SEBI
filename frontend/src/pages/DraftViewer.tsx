@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  apiDownloadFile,
   assembleUrl,
   formatPaise,
   getArithmetic,
@@ -11,6 +12,10 @@ import {
   getExaminer,
   getFacts,
   getGaps,
+  getIdentifiers,
+  getLockIn,
+  getPricing,
+  getRpt,
   getSectionTranslation,
   getSections,
   getSemantic,
@@ -26,14 +31,19 @@ import {
   type Fact,
   type GapReport,
   type GeneratedSection,
+  type IdentifierFinding,
   type IterativeExaminationReport,
+  type LockInFinding,
   type Objection,
+  type PricingFinding,
+  type RPTFinding,
   type ReferenceBenchmark,
   type Role,
   type Severity,
   type SuggestedFix,
   type TranslatedSection,
 } from "../api/client";
+import ClauseTextViewer from "../components/ClauseTextViewer";
 import DocumentSnippetViewer from "../components/DocumentSnippetViewer";
 import TextDiff from "../components/TextDiff";
 
@@ -725,6 +735,110 @@ function ArithmeticList({ items }: { items: ArithmeticFinding[] }) {
   );
 }
 
+/**
+ * Deep compliance checks: statutory-identifier formats, related-party
+ * cross-referencing, promoter contribution/lock-in, and pricing consistency
+ * (see backend/app/validate/{identifiers,rpt,lock_in,pricing}.py).
+ *
+ * Rendered as one list because they answer one question for the promoter —
+ * "does my data hold up against the specific rules Chapter IX imposes?" —
+ * and running them separately would be four clicks for four checks that are
+ * all instant and all deterministic.
+ *
+ * Findings the validators report as *passing* (a lock-in that meets the
+ * minimum, a PE ratio that reconciles) are kept rather than filtered out:
+ * a merchant banker reviewing the draft needs to see that a check ran and
+ * cleared, not just an empty panel that could equally mean "not checked".
+ */
+export interface ComplianceCheckResults {
+  identifiers: IdentifierFinding[];
+  rpt: RPTFinding[];
+  lockIn: LockInFinding[];
+  pricing: PricingFinding[];
+}
+
+const COMPLIANCE_GROUP_LABEL: Record<keyof ComplianceCheckResults, string> = {
+  identifiers: "PAN / CIN / GSTIN format",
+  rpt: "Related party transactions",
+  lockIn: "Promoter contribution & lock-in",
+  pricing: "Pricing & valuation",
+};
+
+function ComplianceList({ results }: { results: ComplianceCheckResults }) {
+  const rows: {
+    group: keyof ComplianceCheckResults;
+    kind: string;
+    detail: string;
+    severity: Severity;
+    clauseRef: string | null;
+  }[] = [
+    ...results.identifiers.map((f) => ({
+      group: "identifiers" as const,
+      kind: `${f.identifier_type} · ${f.key}`,
+      detail: f.detail,
+      // A malformed statutory identifier blocks the filing; a well-formed
+      // one is reported as a passing check, not a problem.
+      severity: (f.valid ? "minor" : "blocker") as Severity,
+      clauseRef: null,
+    })),
+    ...results.rpt.map((f) => ({
+      group: "rpt" as const,
+      kind: f.kind,
+      detail: f.detail,
+      severity: f.severity as Severity,
+      clauseRef: null,
+    })),
+    ...results.lockIn.map((f) => ({
+      group: "lockIn" as const,
+      kind: f.kind,
+      detail: f.detail,
+      severity: f.severity as Severity,
+      clauseRef: f.clause_ref,
+    })),
+    ...results.pricing.map((f) => ({
+      group: "pricing" as const,
+      kind: f.kind,
+      detail: f.detail,
+      severity: f.severity as Severity,
+      clauseRef: f.clause_ref,
+    })),
+  ];
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-xs text-gray-600">
+        Nothing to check yet — these validators read confirmed facts, so they stay quiet
+        until identifiers, related parties, promoter contribution, or pricing are confirmed.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="space-y-2">
+      {rows.map((r, i) => (
+        <li
+          key={`${r.group}-${r.kind}-${i}`}
+          className="border border-gray-200 rounded bg-white p-3 text-sm"
+        >
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <SeverityBadge severity={r.severity} />
+            <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-xs">
+              {COMPLIANCE_GROUP_LABEL[r.group]}
+            </span>
+            <span className="font-mono text-xs text-gray-500 break-all">{r.kind}</span>
+          </div>
+          <div className="text-gray-800 whitespace-pre-line">{r.detail}</div>
+          {r.clauseRef ? (
+            <div className="mt-1.5">
+              <ClauseTextViewer clauseRef={r.clauseRef} />
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // Label + color per suggestion category, matching the categories
 // app.validate.suggestions.SuggestionCategory computes.
 const SUGGESTION_CATEGORY_LABEL: Record<SuggestedFix["category"], string> = {
@@ -1067,6 +1181,9 @@ export default function DraftViewer() {
   const [suggestions, setSuggestions] = useState<SuggestedFix[] | null>(null);
   const [suggestionsState, setSuggestionsState] = useState<LoadState>("idle");
 
+  const [compliance, setCompliance] = useState<ComplianceCheckResults | null>(null);
+  const [complianceState, setComplianceState] = useState<LoadState>("idle");
+
   const [gapReport, setGapReport] = useState<GapReport | null>(null);
   const [gapsState, setGapsState] = useState<LoadState>("idle");
   const [gapsOpen, setGapsOpen] = useState(false);
@@ -1267,6 +1384,25 @@ export default function DraftViewer() {
     }
   }, []);
 
+  // Four independent deterministic validators, fetched together: they're one
+  // question for the promoter, and Promise.all means one round trip's latency
+  // rather than four sequential ones.
+  const runCompliance = useCallback(async () => {
+    setComplianceState("loading");
+    try {
+      const [identifiers, rpt, lockIn, pricing] = await Promise.all([
+        getIdentifiers(),
+        getRpt(),
+        getLockIn(),
+        getPricing(),
+      ]);
+      setCompliance({ identifiers, rpt, lockIn, pricing });
+      setComplianceState("ready");
+    } catch {
+      setComplianceState("error");
+    }
+  }, []);
+
   const loadGaps = useCallback(async () => {
     setGapsState("loading");
     try {
@@ -1375,20 +1511,20 @@ export default function DraftViewer() {
         >
           {generateState === "loading" ? "Generating…" : "Generate draft"}
         </button>
-        <a
-          href={assembleUrl("drhp")}
-          download
+        <button
+          type="button"
           className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-800 hover:bg-gray-50"
+          onClick={() => void apiDownloadFile(assembleUrl("drhp"), "drhp.docx")}
         >
           Download DRHP (.docx)
-        </a>
-        <a
-          href={assembleUrl("abridged")}
-          download
+        </button>
+        <button
+          type="button"
           className="px-3 py-2 rounded border border-gray-300 text-sm text-gray-800 hover:bg-gray-50"
+          onClick={() => void apiDownloadFile(assembleUrl("abridged"), "abridged_prospectus.docx")}
         >
           Download draft abridged prospectus (.docx)
-        </a>
+        </button>
         <StatusPill state={sectionsState} label="draft sections" />
         <StatusPill state={factsState} label="facts" />
         {generateState === "error" && generateError ? (
@@ -1609,6 +1745,26 @@ export default function DraftViewer() {
                       onJumpToExaminer={() => openValidationAt("panel-iterative-examiner")}
                     />
                   ) : null}
+                </div>
+
+                <div id="panel-compliance">
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700"
+                      onClick={runCompliance}
+                      disabled={complianceState === "loading"}
+                    >
+                      {complianceState === "loading" ? "Checking…" : "Compliance checks"}
+                    </button>
+                    <StatusPill state={complianceState} label="compliance" />
+                  </div>
+                  <p className="text-xs text-gray-500 mb-2">
+                    Statutory identifier formats, related-party cross-check, promoter
+                    contribution &amp; lock-in, and pricing/valuation consistency. All
+                    deterministic — no LLM, no external lookup.
+                  </p>
+                  {compliance !== null ? <ComplianceList results={compliance} /> : null}
                 </div>
 
                 <div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import ClauseTextViewer from "../components/ClauseTextViewer";
 import { getCoverage, getGaps, getSchema, getWizardQuestions } from "../api/client";
 import type {
   ChecklistEntry,
@@ -36,6 +37,7 @@ const UI: Record<Lang, {
   items: (n: number) => string;
   requirement: string;
   whatThisMeans: string;
+  theRegulation: string;
   whoFixes: string;
   fixInWizard: string;
   coverageLabel: string;
@@ -60,6 +62,7 @@ const UI: Record<Lang, {
     items: (n) => (n === 1 ? "item" : "items"),
     requirement: "Requirement",
     whatThisMeans: "What this means",
+    theRegulation: "The regulation itself",
     whoFixes: "Who provides this",
     fixInWizard: "Fix this in the Wizard →",
     coverageLabel: "Draft completeness",
@@ -95,6 +98,7 @@ const UI: Record<Lang, {
     items: (n) => (n === 1 ? "मद" : "मदें"),
     requirement: "आवश्यकता",
     whatThisMeans: "इसका क्या मतलब है",
+    theRegulation: "नियम का मूल पाठ",
     whoFixes: "यह कौन देगा",
     fixInWizard: "विज़ार्ड में इसे भरें →",
     coverageLabel: "ड्राफ़्ट पूर्णता",
@@ -216,17 +220,6 @@ function SeverityBadge({ severity }: { severity: Severity }) {
   );
 }
 
-function ClauseChip({ clauseRef }: { clauseRef: string }) {
-  return (
-    <span
-      className="inline-block max-w-full break-words whitespace-normal rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
-      title={clauseRef}
-    >
-      {clauseRef}
-    </span>
-  );
-}
-
 function GapRow({
   gap,
   t,
@@ -261,7 +254,12 @@ function GapRow({
           </div>
         </div>
         <div className="flex w-full shrink-0 flex-wrap items-start gap-2 sm:w-64 sm:justify-end md:w-72">
-          <ClauseChip clauseRef={gap.clause_ref} />
+          <span
+            className="inline-block max-w-full break-words whitespace-normal rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
+            title={gap.clause_ref}
+          >
+            {gap.clause_ref}
+          </span>
           <SeverityBadge severity={gap.severity} />
         </div>
       </button>
@@ -275,6 +273,16 @@ function GapRow({
               <p className="mt-1 whitespace-pre-line text-gray-800">{entry.description.trim()}</p>
             </>
           ) : null}
+          {/* The citation above is a label; this resolves it to the actual
+              regulation text. Lives here rather than beside the chip because
+              the chip sits inside the row-toggle button, and a button cannot
+              legally contain another button. */}
+          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {t.theRegulation}
+          </div>
+          <div className="mt-1">
+            <ClauseTextViewer clauseRef={gap.clause_ref} />
+          </div>
           <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
             {t.whoFixes}
           </div>

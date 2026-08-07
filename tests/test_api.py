@@ -50,7 +50,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import main as main_module
 from app.assemble.bundle import BUNDLE_MEMBERS
-from app.audit import reset_audit_log
 from app.config import settings
 from app.db import get_session
 from app.review.workflow import SectionState
@@ -89,18 +88,17 @@ async def fresh_app(
 
     ``db_session`` (root ``conftest.py``) is one rolled-back-at-the-end DB
     transaction — every fact/review/account mutation a test makes disappears
-    automatically, no explicit reset needed. ``uploads_dir``/``audit_dir``
-    are still redirected into ``tmp_path``: the archived-upload vault and
-    the audit log are real filesystem directories unaffected by the DB
-    rollback, so without the redirect the suite would write into a
-    developer's live ``data/uploads/``/``data/audit/``.
+    automatically, no explicit reset needed. ``uploads_dir`` is still
+    redirected into ``tmp_path``: the archived-upload vault is a real
+    filesystem directory unaffected by the DB rollback, so without the
+    redirect the suite would write into a developer's live ``data/uploads/``.
+    (The audit log needs no such redirect any more — it lives in the same
+    rolled-back transaction as everything else now.)
     """
     monkeypatch.setattr(settings, "uploads_dir", tmp_path / "uploads")
-    monkeypatch.setattr(settings, "audit_dir", tmp_path / "audit")
     monkeypatch.setattr(settings, "banker_invite_code", TEST_BANKER_INVITE)
     monkeypatch.setattr(settings, "auditor_invite_code", TEST_AUDITOR_INVITE)
     main_module.reset_runtime_cache()
-    reset_audit_log()
 
     async def _override_get_session() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -114,7 +112,6 @@ async def fresh_app(
         yield client
     main_module.app.dependency_overrides.clear()
     main_module.reset_runtime_cache()
-    reset_audit_log()
 
 
 @pytest_asyncio.fixture()
@@ -169,6 +166,10 @@ async def test_health_and_schema(fresh_app: AsyncClient) -> None:
     body = resp.json()
     assert body["status"] == "ok"
     assert body["schema_version"], "checklist must expose a schema_version"
+    # The Dockerfile's HEALTHCHECK reads db_connected specifically — it's a
+    # readiness check, not just "the process answered". "ok" above and this
+    # flag must never disagree.
+    assert body["db_connected"] is True
 
     schema = (await fresh_app.get("/api/schema")).json()
     assert schema["header"]["schema_version"] == body["schema_version"]
@@ -1165,6 +1166,25 @@ async def test_register_rejects_overlong_password(fresh_app: AsyncClient) -> Non
 async def test_audit_log_is_banker_only(fresh_app: AsyncClient) -> None:
     resp = await fresh_app.get("/api/audit")
     assert resp.status_code == 403
+
+
+async def test_metrics_is_banker_only_and_counts_real_traffic(
+    fresh_app: AsyncClient, banker_headers: dict[str, str]
+) -> None:
+    """Same oversight rationale as the audit log — a promoter can't read it."""
+    assert (await fresh_app.get("/api/metrics")).status_code == 403
+
+    await fresh_app.get("/api/facts")
+    await fresh_app.get("/api/uploads/no-such-document-id")  # 404, still counted
+    body = (await fresh_app.get("/api/metrics", headers=banker_headers)).json()
+
+    assert body["total_requests"] > 0
+    routes = {e["path"] for e in body["endpoints"]}
+    assert "GET /api/facts" in routes
+    # Route labels, never raw paths: an id-carrying route is templated, or
+    # the collector mints a counter per resource id and leaks unboundedly.
+    assert "GET /api/uploads/{id}" in routes
+    assert "no-such-document-id" not in " ".join(routes)
 
 
 async def test_audit_log_records_promoter_actions_with_correct_actor(

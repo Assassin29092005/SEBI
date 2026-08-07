@@ -650,6 +650,77 @@ export const getArithmetic = (): Promise<ArithmeticFinding[]> =>
 export const getExaminer = (): Promise<Objection[]> =>
   apiGet<Objection[]>("/api/validate/examiner");
 
+// --------------------------------------------------------------------------
+// Compliance validators (backend/app/validate/{identifiers,rpt,lock_in,pricing}.py)
+//
+// All four are deterministic and read only confirmed facts. They deepen the
+// compliance check beyond the gap/contradiction/arithmetic trio: format
+// checks on Indian statutory identifiers, related-party cross-referencing,
+// promoter contribution/lock-in arithmetic, and pricing consistency.
+// --------------------------------------------------------------------------
+
+export type ComplianceSeverity = "blocker" | "material" | "minor";
+
+export interface IdentifierFinding {
+  fact_id: string;
+  key: string;
+  identifier_type: string;
+  value: string;
+  valid: boolean;
+  detail: string;
+}
+
+export interface RPTFinding {
+  kind: string;
+  detail: string;
+  entity: string | null;
+  severity: ComplianceSeverity;
+}
+
+export interface LockInFinding {
+  kind: string;
+  detail: string;
+  severity: ComplianceSeverity;
+  clause_ref: string | null;
+}
+
+export interface PricingFinding {
+  kind: string;
+  detail: string;
+  severity: ComplianceSeverity;
+  clause_ref: string | null;
+}
+
+export const getIdentifiers = (): Promise<IdentifierFinding[]> =>
+  apiGet<IdentifierFinding[]>("/api/validate/identifiers");
+
+export const getRpt = (): Promise<RPTFinding[]> =>
+  apiGet<RPTFinding[]>("/api/validate/rpt");
+
+export const getLockIn = (): Promise<LockInFinding[]> =>
+  apiGet<LockInFinding[]>("/api/validate/lock-in");
+
+export const getPricing = (): Promise<PricingFinding[]> =>
+  apiGet<PricingFinding[]>("/api/validate/pricing");
+
+// --------------------------------------------------------------------------
+// Clause text (backend/app/schema/clause_text.py)
+//
+// Every requirement in the checklist carries a clause_ref citation string.
+// This resolves that citation to the actual ICDR passage, so a promoter can
+// read the regulation itself rather than take the label on trust. `found`
+// is false — never a guessed passage — when the ref can't be resolved.
+// --------------------------------------------------------------------------
+
+export interface ClauseText {
+  clause_ref: string;
+  text: string | null;
+  found: boolean;
+}
+
+export const getClauseText = (clauseRef: string): Promise<ClauseText> =>
+  apiGet<ClauseText>(`/api/schema/clause/${encodeURIComponent(clauseRef)}`);
+
 // Promoter-only (same restriction as postGenerate — it can rewrite draft
 // text). Requires postGenerate to have run first (backend answers 409
 // otherwise). Caches the (possibly revised) final sections the same way
@@ -737,25 +808,101 @@ export interface StalenessCheckResult {
   source: string;
 }
 
+// --------------------------------------------------------------------------
+// Audit log (backend/app/audit.py) — banker-only.
+//
+// Every /api request is recorded, including denied ones, so this answers
+// "who looked at this" as well as "who changed it". Static asset and health
+// requests are deliberately excluded server-side.
+// --------------------------------------------------------------------------
+
+export type AuditOutcome = "success" | "denied" | "error";
+
+export interface AuditEvent {
+  event_id: string;
+  at: string; // ISO 8601
+  actor_user_id: string | null;
+  actor_email: string; // "anonymous" when the request carried no valid token
+  actor_role: Role | null;
+  method: string;
+  path: string;
+  status_code: number;
+  action: string;
+  resource_type: string;
+  resource_id: string | null;
+  outcome: AuditOutcome;
+}
+
+export interface AuditFilters {
+  actor_email?: string;
+  action?: string;
+  resource_type?: string;
+  outcome?: AuditOutcome;
+  limit?: number;
+}
+
+export const getAuditLog = (filters: AuditFilters = {}): Promise<AuditEvent[]> => {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") query.set(key, String(value));
+  }
+  const qs = query.toString();
+  return apiGet<AuditEvent[]>(`/api/audit${qs ? `?${qs}` : ""}`);
+};
+
 export const getRegulatoryWatchStatus = (): Promise<StalenessCheckResult | null> =>
   apiGet<StalenessCheckResult | null>("/api/regulatory-watch/status");
 
 export const postRegulatoryWatchCheck = (): Promise<StalenessCheckResult> =>
   apiPost<StalenessCheckResult>("/api/regulatory-watch/check", {});
 
-// Assembly — returns the URL the browser can point an <a href> / download at.
-// Not fetched here because the response is a .docx binary, not JSON.
+// Assembly / bundle — path helpers. These are NOT usable as bare <a href>
+// targets: every endpoint requires an Authorization header that a plain
+// anchor cannot attach. Use apiDownloadFile() below instead.
 export const assembleUrl = (target: OutputTarget): string =>
   `/api/assemble/${encodeURIComponent(target)}`;
 
-// Exchange-ready bundle (ZIP: both .docx targets + the full audit trail).
-// Like assembleUrl, a plain <a href> download target — the response is binary.
 export const bundleUrl = (): string => "/api/export/bundle";
+
+/**
+ * Authenticated binary download. Fetches `path` with the same Bearer header
+ * every other request uses, creates a blob URL, programmatically triggers a
+ * download via a temporary anchor, then revokes the URL.
+ *
+ * This replaces plain `<a href>` links to auth-required binary endpoints
+ * (assembled .docx, exchange-ready .zip) that previously 401'd on click
+ * because the browser couldn't attach the Authorization header.
+ */
+export async function apiDownloadFile(
+  path: string,
+  filename?: string,
+): Promise<void> {
+  const res = await fetch(path, { headers: { ...authHeaders() } });
+  if (res.status === 401) {
+    notifyUnauthorized();
+    throw new Error(`GET ${path} → 401`);
+  }
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  // Derive a filename from the path if the caller didn't supply one, e.g.
+  // "/api/assemble/drhp" → "drhp", "/api/export/bundle" → "bundle".
+  a.download = filename ?? path.split("/").pop() ?? "download";
+  document.body.appendChild(a);
+  a.click();
+  // Clean up: revoke the blob and remove the ephemeral anchor.
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+    a.remove();
+  }, 100);
+}
 
 /**
  * Pre-flight the bundle download. GET /api/export/bundle is gated by the
  * certification lock and answers 409 until every blocker-severity section is
- * certified — a bare <a> click would surface that as a broken download, so
+ * certified — a bare click would surface that as a broken download, so
  * call this first and show the thrown error instead. Uses GET (FastAPI routes
  * do not answer HEAD) and cancels the body stream immediately so the ZIP is
  * never actually transferred; throws the same "METHOD path → status" Error
@@ -763,7 +910,8 @@ export const bundleUrl = (): string => "/api/export/bundle";
  */
 export async function exportBundleCheck(): Promise<void> {
   const path = bundleUrl();
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: { ...authHeaders() } });
+  if (res.status === 401) notifyUnauthorized();
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
   await res.body?.cancel();
 }

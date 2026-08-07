@@ -11,7 +11,7 @@ import pytest
 from PIL import Image
 
 from app.facts import SourceKind
-from app.intake.ocr import is_ocr_available
+from app.intake.ocr import OcrUnavailable, is_ocr_available
 from app.intake.uploads import (
     _DETERMINISTIC_CONFIDENCE,
     _OCR_CONFIDENCE,
@@ -295,13 +295,32 @@ def test_looks_scanned_false_for_real_disclosure_prose() -> None:
 
 # --------------------------------------------------------------------------
 # _page_texts routing: scanned PDF pages and image uploads fall back
-# gracefully when OCR isn't available (true in this environment — no
-# Tesseract binary — so this exercises the real fallback path, not a mock)
+# gracefully when OCR isn't available.
+#
+# The fallback is forced by making the OCR call raise, not by relying on the
+# machine having no Tesseract binary. Asserting ``is_ocr_available() is
+# False`` — as these did — inverts the skip: the test then passes only on
+# machines *without* OCR and fails on machines with it, which is exactly
+# backwards, and it means the branch goes untested on any machine that can
+# actually run OCR. Raising ``OcrUnavailable`` exercises the real
+# ``except`` branch in ``_page_texts`` either way.
 # --------------------------------------------------------------------------
 
 
-def test_scanned_pdf_page_falls_back_to_empty_text_without_ocr() -> None:
-    assert is_ocr_available() is False, "this test asserts the no-OCR fallback path"
+def _no_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force every OCR call in ``app.intake.uploads`` to report unavailable."""
+
+    def _raise(*_args: object, **_kwargs: object) -> str:
+        raise OcrUnavailable("tesseract not installed")
+
+    monkeypatch.setattr("app.intake.uploads.ocr_image", _raise)
+    monkeypatch.setattr("app.intake.uploads.ocr_image_bytes", _raise)
+
+
+def test_scanned_pdf_page_falls_back_to_empty_text_without_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_ocr(monkeypatch)
     # A page with NO insert_text call at all — genuinely no text layer,
     # the same shape a real scanned/photographed page would have.
     pdf_bytes = _make_pdf_bytes(text=None)
@@ -316,8 +335,10 @@ def test_scanned_pdf_extraction_yields_no_proposals_not_a_crash() -> None:
     assert proposals == []
 
 
-def test_image_upload_falls_back_to_empty_text_without_ocr() -> None:
-    assert is_ocr_available() is False, "this test asserts the no-OCR fallback path"
+def test_image_upload_falls_back_to_empty_text_without_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_ocr(monkeypatch)
     pages = _page_texts("photo.png", _make_blank_image_bytes())
     assert pages == [PageText(text="", ocr=False)]
 
@@ -394,15 +415,21 @@ def test_llm_proposal_confidence_uncapped_when_source_page_is_native() -> None:
 
 @pytest.mark.skipif(not is_ocr_available(), reason="Tesseract OCR is not installed")
 def test_real_ocr_extracts_facts_from_a_scanned_looking_pdf_page() -> None:
-    from PIL import ImageDraw
+    from PIL import ImageDraw, ImageFont
 
-    image = Image.new("RGB", (600, 100), color="white")
-    ImageDraw.Draw(image).text((10, 40), "Issue Size: Rs 14.00 crore", fill="black")
+    # A real scalable font at a real size. PIL's default *bitmap* font
+    # renders ~11px glyphs that survive neither the 300-DPI upscale nor
+    # Tesseract: it reads them as "lesue Size: Rs 144.00 crore" — a
+    # misread digit, which would make this test assert that extraction
+    # fails rather than that it works.
+    font = ImageFont.load_default(size=40)
+    image = Image.new("RGB", (1400, 120), color="white")
+    ImageDraw.Draw(image).text((20, 30), "Issue Size: Rs 14.00 crore", fill="black", font=font)
 
     # Build a PDF page whose only content is that image — no text layer —
     # the same shape a real scanned page has.
     doc = fitz.open()
-    page = doc.new_page(width=600, height=100)
+    page = doc.new_page(width=1400, height=120)
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     page.insert_image(page.rect, stream=buf.getvalue())

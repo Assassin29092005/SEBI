@@ -86,3 +86,36 @@ class BankerEditRow(SQLModel, table=True):
     before: str
     after: str
     at: datetime = Field(sa_column=Column(DateTime(timezone=True)))
+
+
+class AuditEventRow(SQLModel, table=True):
+    """Audit log: who accessed or changed what, and when.
+
+    Replaces the previous encrypted-file audit log (see app.audit) with a
+    proper append-only database table — eliminates the O(n) rewrite per
+    request and unbounded file growth.
+    """
+    __tablename__ = "audit_events"
+    # Indexed on exactly the columns GET /api/audit filters and orders by.
+    # Declared here rather than via Field(index=True) so the names match the
+    # migration one-for-one; index=True would additionally emit a second,
+    # auto-named index over the same column.
+    __table_args__ = (
+        Index("ix_audit_actor_email", "actor_email"),
+        Index("ix_audit_action", "action"),
+        Index("ix_audit_at", "at"),
+    )
+
+    event_id: str = Field(primary_key=True)
+    at: datetime = Field(sa_column=Column(DateTime(timezone=True)))
+    actor_user_id: str | None = None
+    actor_email: str = "anonymous"
+    actor_role: str | None = None
+    method: str
+    path: str
+    status_code: int
+    action: str
+    resource_type: str
+    resource_id: str | None = None
+    outcome: str  # "success" | "denied" | "error"
+

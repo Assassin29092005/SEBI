@@ -11,39 +11,31 @@ Wired in as a single ASGI middleware in ``app.main`` (``audit_log_middleware``)
 rather than a call scattered across 25+ endpoint handlers: every request is
 classified by ``classify_request`` (method + path -> human-readable action /
 resource type, with the resource id pulled out of the path where one exists)
-and recorded here, encrypted at rest like the rest of this app's storage
-(see :mod:`app.crypto`).
+and recorded here.
 
-Storage note: this rewrites the whole encrypted file on every event
-(read-modify-write, atomic tmp-then-``os.replace`` — the same pattern
-``app.auth.store`` used before facts/review/users moved to Postgres, see
-``app.db``). That's fine for a single issuer's audit volume over a drafting
-cycle, but it is an O(n) write on every request — exactly the kind of thing
-a real database's append-only table exists to solve, same problem Postgres
-was brought in to fix for the rest of this app's durable state. Documented
-as a known limitation, not (yet) migrated.
+Storage: Postgres ``audit_events`` table (see ``app.db_models.AuditEventRow``).
+Replaced the previous encrypted-file approach which had an O(n) rewrite per
+request — exactly the kind of thing a real database's append-only table
+exists to solve.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlmodel import select
 
-from app.config import settings
-from app.crypto import DecryptionError, decrypt_bytes, encrypt_bytes
+from app.db_models import AuditEventRow
 from app.schema.models import Role
 
 logger = logging.getLogger("drhp.audit")
-
-# ``.enc`` (not ``.json``): the file is ciphertext, not readable JSON.
-AUDIT_FILENAME = "audit.enc"
 
 Outcome = Literal["success", "denied", "error"]
 
@@ -86,6 +78,7 @@ _ROUTES: list[tuple[str, re.Pattern[str], str, str]] = [
     ("POST", re.compile(r"^/api/auth/login$"), "login", "auth"),
     ("GET", re.compile(r"^/api/auth/me$"), "view_own_account", "auth"),
     ("GET", re.compile(r"^/api/schema$"), "view_schema", "schema"),
+    ("GET", re.compile(r"^/api/schema/clause/"), "view_clause_text", "schema"),
     ("POST", re.compile(r"^/api/eligibility$"), "check_eligibility", "eligibility"),
     ("GET", re.compile(r"^/api/wizard/questions$"), "view_wizard_questions", "wizard"),
     ("GET", re.compile(r"^/api/facts$"), "view_facts", "fact"),
@@ -94,12 +87,22 @@ _ROUTES: list[tuple[str, re.Pattern[str], str, str]] = [
     ("POST", re.compile(r"^/api/facts/(?P<id>[^/]+)/correct$"), "correct_fact", "fact"),
     ("POST", re.compile(r"^/api/uploads/extract$"), "upload_document", "document"),
     ("GET", re.compile(r"^/api/uploads$"), "view_documents", "document"),
+    # Must precede the download entry: both start /api/uploads/<id>, and the
+    # download pattern is anchored with $ so only this one matches the
+    # page-image path.
+    (
+        "GET",
+        re.compile(r"^/api/uploads/(?P<id>[^/]+)/page/\d+$"),
+        "view_document_page",
+        "document",
+    ),
     ("GET", re.compile(r"^/api/uploads/(?P<id>[^/]+)$"), "download_document", "document"),
     ("POST", re.compile(r"^/api/proposals/accept$"), "accept_proposal", "fact"),
     ("GET", re.compile(r"^/api/litigation$"), "search_litigation", "litigation"),
     ("POST", re.compile(r"^/api/generate$"), "generate_draft", "draft"),
     ("GET", re.compile(r"^/api/sections$"), "view_draft", "draft"),
-    ("GET", re.compile(r"^/api/validate/(?P<id>\w+)$"), "view_validation", "validation"),
+    ("GET", re.compile(r"^/api/validate/(?P<id>[\w-]+)$"), "view_validation", "validation"),
+    ("POST", re.compile(r"^/api/validate/"), "run_validation", "validation"),
     ("GET", re.compile(r"^/api/coverage/benchmark$"), "view_coverage_benchmark", "coverage"),
     ("GET", re.compile(r"^/api/coverage$"), "view_coverage", "coverage"),
     ("GET", re.compile(r"^/api/gaps$"), "view_gaps", "gap_report"),
@@ -110,6 +113,7 @@ _ROUTES: list[tuple[str, re.Pattern[str], str, str]] = [
     ("GET", re.compile(r"^/api/assemble/(?P<id>[^/]+)$"), "download_docx", "export"),
     ("GET", re.compile(r"^/api/export/bundle$"), "download_bundle", "export"),
     ("GET", re.compile(r"^/api/audit$"), "view_audit_log", "audit"),
+    ("GET", re.compile(r"^/api/metrics$"), "view_metrics", "monitoring"),
 ]
 
 
@@ -130,94 +134,78 @@ def classify_request(method: str, path: str) -> tuple[str, str, str | None]:
 
 
 # --------------------------------------------------------------------------
-# Storage: encrypted, atomic, read-modify-write on every event (see the
-# module docstring's Storage note for the O(n)-per-write caveat)
+# Postgres-backed audit repository
 # --------------------------------------------------------------------------
 
 
-class _AuditFile(BaseModel):
-    events: list[AuditEvent] = []
+def _to_row(event: AuditEvent) -> AuditEventRow:
+    return AuditEventRow(
+        event_id=event.event_id,
+        at=event.at,
+        actor_user_id=event.actor_user_id,
+        actor_email=event.actor_email,
+        actor_role=event.actor_role.value if event.actor_role else None,
+        method=event.method,
+        path=event.path,
+        status_code=event.status_code,
+        action=event.action,
+        resource_type=event.resource_type,
+        resource_id=event.resource_id,
+        outcome=event.outcome,
+    )
 
 
-class AuditLog:
-    def __init__(self, directory: Path | None = None) -> None:
-        self._directory = directory
-        self._events: list[AuditEvent] = []
-        self._load()
-
-    def _path(self) -> Path:
-        base = self._directory if self._directory is not None else settings.audit_dir
-        return base / AUDIT_FILENAME
-
-    def _load(self) -> None:
-        path = self._path()
-        try:
-            raw = path.read_bytes()
-        except FileNotFoundError:
-            return
-        except OSError as exc:
-            logger.warning("Audit log at %s unreadable, starting empty: %s", path, exc)
-            return
-        try:
-            plaintext = decrypt_bytes(raw)
-        except DecryptionError as exc:
-            logger.warning("Audit log at %s could not be decrypted, starting empty: %s", path, exc)
-            return
-        try:
-            data = _AuditFile.model_validate_json(plaintext)
-        except ValueError as exc:
-            logger.warning("Audit log at %s is corrupt, starting empty: %s", path, exc)
-            return
-        self._events = list(data.events)
-
-    def _save(self) -> None:
-        path = self._path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        plaintext = _AuditFile(events=self._events).model_dump_json().encode("utf-8")
-        tmp.write_bytes(encrypt_bytes(plaintext))
-        os.replace(tmp, path)
-
-    def record(self, event: AuditEvent) -> AuditEvent:
-        self._events.append(event)
-        self._save()
-        return event
-
-    def list_events(
-        self,
-        *,
-        actor_email: str | None = None,
-        action: str | None = None,
-        resource_type: str | None = None,
-        outcome: Outcome | None = None,
-        limit: int = 500,
-    ) -> list[AuditEvent]:
-        """Most recent first, optionally filtered. ``limit`` caps the response size."""
-        results = self._events
-        if actor_email:
-            results = [e for e in results if e.actor_email == actor_email]
-        if action:
-            results = [e for e in results if e.action == action]
-        if resource_type:
-            results = [e for e in results if e.resource_type == resource_type]
-        if outcome:
-            results = [e for e in results if e.outcome == outcome]
-        return sorted(results, key=lambda e: e.at, reverse=True)[:limit]
+def _to_event(row: AuditEventRow) -> AuditEvent:
+    return AuditEvent(
+        event_id=row.event_id,
+        at=row.at,
+        actor_user_id=row.actor_user_id,
+        actor_email=row.actor_email,
+        actor_role=Role(row.actor_role) if row.actor_role else None,
+        method=row.method,
+        path=row.path,
+        status_code=row.status_code,
+        action=row.action,
+        resource_type=row.resource_type,
+        resource_id=row.resource_id,
+        outcome=row.outcome,
+    )
 
 
-_log: AuditLog | None = None
+async def record_audit_event(session: AsyncSession, event: AuditEvent) -> AuditEvent:
+    """Append an audit event to the database. Never raises — audit logging
+    must not break the request it's observing."""
+    try:
+        session.add(_to_row(event))
+        await session.commit()
+    except Exception:  # noqa: BLE001 — audit logging must never break
+        logger.exception("Failed to record audit event %s", event.event_id)
+        await session.rollback()
+    return event
 
 
-def get_audit_log() -> AuditLog:
-    """Process-wide singleton, lazily created (and lazily loaded from disk)."""
-    global _log
-    if _log is None:
-        _log = AuditLog()
-    return _log
+async def list_audit_events(
+    session: AsyncSession,
+    *,
+    actor_email: str | None = None,
+    action: str | None = None,
+    resource_type: str | None = None,
+    outcome: Outcome | None = None,
+    limit: int = 500,
+) -> list[AuditEvent]:
+    """Most recent first, optionally filtered."""
+    stmt = select(AuditEventRow)
 
+    if actor_email:
+        stmt = stmt.where(AuditEventRow.actor_email == actor_email)
+    if action:
+        stmt = stmt.where(AuditEventRow.action == action)
+    if resource_type:
+        stmt = stmt.where(AuditEventRow.resource_type == resource_type)
+    if outcome:
+        stmt = stmt.where(AuditEventRow.outcome == outcome)
 
-def reset_audit_log() -> AuditLog:
-    """Swap in a fresh log — used by tests after monkeypatching ``settings.audit_dir``."""
-    global _log
-    _log = AuditLog()
-    return _log
+    stmt = stmt.order_by(desc(AuditEventRow.at)).limit(limit)
+
+    rows = (await session.execute(stmt)).scalars().all()
+    return [_to_event(row) for row in rows]

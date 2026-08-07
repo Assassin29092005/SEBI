@@ -1,13 +1,18 @@
-"""Audit log: route classification, encrypted storage, filtering."""
+"""Audit log: route classification, Postgres persistence, filtering."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
-import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.audit import AUDIT_FILENAME, AuditEvent, AuditLog, classify_request, outcome_for_status
+from app.audit import (
+    AuditEvent,
+    classify_request,
+    list_audit_events,
+    outcome_for_status,
+    record_audit_event,
+)
 from app.schema.models import Role
 
 
@@ -46,11 +51,30 @@ def test_classify_download_document_extracts_resource_id() -> None:
     )
 
 
+def test_classify_document_page_view_is_distinct_from_download() -> None:
+    """Both start /api/uploads/<id>; the page view must not fall through to
+    the raw-path fallback, or the document id leaks into the action label."""
+    assert classify_request("GET", "/api/uploads/doc-1/page/3") == (
+        "view_document_page",
+        "document",
+        "doc-1",
+    )
+
+
 def test_classify_validation_kind_becomes_resource_id() -> None:
     assert classify_request("GET", "/api/validate/contradictions") == (
         "view_validation",
         "validation",
         "contradictions",
+    )
+
+
+def test_classify_hyphenated_validation_kind() -> None:
+    """``/api/validate/lock-in`` must classify like every other validator."""
+    assert classify_request("GET", "/api/validate/lock-in") == (
+        "view_validation",
+        "validation",
+        "lock-in",
     )
 
 
@@ -92,38 +116,30 @@ def test_outcome_for_status_buckets() -> None:
 
 
 # --------------------------------------------------------------------------
-# AuditLog: round trip, encryption at rest, filtering, corruption safety
+# Postgres-backed store: round trip, filtering, ordering
 # --------------------------------------------------------------------------
 
 
-def test_record_then_reload_round_trips(tmp_path: Path) -> None:
-    log = AuditLog(directory=tmp_path)
-    recorded = log.record(_event(actor_email="promoter@test.example", actor_role=Role.PROMOTER))
-
-    reloaded = AuditLog(directory=tmp_path)
-    events = reloaded.list_events()
-    assert events == [recorded]
-
-
-def test_file_on_disk_is_encrypted_not_plaintext(tmp_path: Path) -> None:
-    log = AuditLog(directory=tmp_path)
-    log.record(
-        _event(
-            actor_email="sensitive.promoter@sunriseagrotech.example",
-            path="/api/uploads/dd-certificate-id",
-        )
+async def test_record_then_read_round_trips(db_session: AsyncSession) -> None:
+    recorded = await record_audit_event(
+        db_session, _event(actor_email="promoter@test.example", actor_role=Role.PROMOTER)
     )
-    raw = (tmp_path / AUDIT_FILENAME).read_bytes()
-    assert b"sensitive.promoter" not in raw
-    assert b"dd-certificate-id" not in raw
-    with pytest.raises(json.JSONDecodeError):
-        json.loads(raw)
+
+    events = await list_audit_events(db_session)
+    assert [e.event_id for e in events] == [recorded.event_id]
+    assert events[0].actor_role is Role.PROMOTER
+    assert events[0].actor_email == "promoter@test.example"
 
 
-def test_list_events_filters_by_actor_action_resource_outcome(tmp_path: Path) -> None:
-    log = AuditLog(directory=tmp_path)
-    log.record(_event(actor_email="a@x.com", action="view_facts", resource_type="fact", outcome="success"))
-    log.record(
+async def test_list_events_filters_by_actor_action_resource_outcome(
+    db_session: AsyncSession,
+) -> None:
+    await record_audit_event(
+        db_session,
+        _event(actor_email="a@x.com", action="view_facts", resource_type="fact"),
+    )
+    await record_audit_event(
+        db_session,
         _event(
             actor_email="b@x.com",
             method="POST",
@@ -132,36 +148,42 @@ def test_list_events_filters_by_actor_action_resource_outcome(tmp_path: Path) ->
             action="generate_draft",
             resource_type="draft",
             outcome="denied",
-        )
+        ),
     )
 
-    assert len(log.list_events(actor_email="a@x.com")) == 1
-    assert len(log.list_events(outcome="denied")) == 1
-    assert len(log.list_events(resource_type="draft")) == 1
-    assert len(log.list_events(action="view_facts")) == 1
-    assert len(log.list_events()) == 2
-    assert log.list_events(actor_email="nobody@x.com") == []
+    assert len(await list_audit_events(db_session, actor_email="a@x.com")) == 1
+    assert len(await list_audit_events(db_session, outcome="denied")) == 1
+    assert len(await list_audit_events(db_session, resource_type="draft")) == 1
+    assert len(await list_audit_events(db_session, action="view_facts")) == 1
+    assert len(await list_audit_events(db_session)) == 2
+    assert await list_audit_events(db_session, actor_email="nobody@x.com") == []
 
 
-def test_list_events_most_recent_first_and_respects_limit(tmp_path: Path) -> None:
-    log = AuditLog(directory=tmp_path)
-    first = log.record(_event())
-    second = log.record(_event())
-    third = log.record(_event())
+async def test_list_events_most_recent_first_and_respects_limit(
+    db_session: AsyncSession,
+) -> None:
+    """Explicit timestamps: same-instant rows have no defined relative order."""
+    base = datetime.now(UTC)
+    first, second, third = [
+        await record_audit_event(db_session, _event(at=base + timedelta(seconds=n)))
+        for n in (0, 1, 2)
+    ]
 
-    events = log.list_events()
+    events = await list_audit_events(db_session)
     assert [e.event_id for e in events] == [third.event_id, second.event_id, first.event_id]
 
-    limited = log.list_events(limit=2)
+    limited = await list_audit_events(db_session, limit=2)
     assert [e.event_id for e in limited] == [third.event_id, second.event_id]
 
 
-def test_missing_directory_starts_empty(tmp_path: Path) -> None:
-    log = AuditLog(directory=tmp_path / "does_not_exist")
-    assert log.list_events() == []
+async def test_record_never_raises_on_a_bad_event(db_session: AsyncSession) -> None:
+    """Audit logging must not be able to take down the request it observes.
 
+    A duplicate primary key is the cheapest way to force a DB-level failure;
+    the contract is that it's swallowed and the caller carries on.
+    """
+    event = _event()
+    await record_audit_event(db_session, event)
+    await record_audit_event(db_session, event)  # same event_id — must not raise
 
-def test_corrupt_file_starts_empty_without_raising(tmp_path: Path) -> None:
-    (tmp_path / AUDIT_FILENAME).write_bytes(b"not encrypted, not json, just garbage")
-    log = AuditLog(directory=tmp_path)
-    assert log.list_events() == []
+    assert len(await list_audit_events(db_session)) == 1

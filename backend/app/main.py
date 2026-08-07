@@ -33,6 +33,7 @@ import logging
 import os
 import re
 import shutil
+import time
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
@@ -41,6 +42,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Uploa
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import facts_repo, runtime_cache
@@ -50,8 +52,9 @@ from app.audit import (
     AuditEvent,
     Outcome,
     classify_request,
-    get_audit_log,
+    list_audit_events,
     outcome_for_status,
+    record_audit_event,
 )
 from app.auth import store as auth_store
 from app.auth.dependencies import get_current_user, require_roles
@@ -78,9 +81,12 @@ from app.intake.vault import (
     retrieve_upload,
 )
 from app.intake.wizard import WizardQuestion, derive_questions
+from app.metrics import AppMetrics, get_metrics_collector
+from app.rate_limit import rate_limit_middleware
 from app.regulatory_watch import StalenessCheckResult, check_for_staleness
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
+from app.schema.clause_text import get_clause_text, list_available_clauses
 from app.schema.loader import load_checklist
 from app.schema.models import Checklist, OutputTarget, Role
 from app.validate.arithmetic import ArithmeticFinding, check_arithmetic
@@ -94,7 +100,11 @@ from app.validate.contradictions import (
 )
 from app.validate.examiner import Objection, examine
 from app.validate.gaps import GapReport, check_gaps
+from app.validate.identifiers import IdentifierFinding, check_identifiers
 from app.validate.iterative_examiner import IterativeExaminationReport, examine_iteratively
+from app.validate.lock_in import LockInFinding, check_lock_in
+from app.validate.pricing import PricingFinding, check_pricing
+from app.validate.rpt import RPTFinding, check_rpt
 from app.validate.suggestions import SuggestedFix, compute_suggested_fixes
 
 logger = logging.getLogger("drhp.main")
@@ -103,10 +113,27 @@ app = FastAPI(title="DRHP Studio", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=[o.strip() for o in settings.allowed_origins.split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Startup warning: ephemeral JWT secret in multi-worker deployments
+if not settings.jwt_secret_key:
+    logger.warning(
+        "JWT_SECRET_KEY is not set — using a per-process ephemeral key. "
+        "Tokens will not survive restarts and will fail across workers. "
+        "Set JWT_SECRET_KEY in the environment for production."
+    )
+
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next: Any) -> Any:
+    """Per-key sliding-window rate limiting (see app.rate_limit)."""
+    if not settings.rate_limit_enabled:
+        return await call_next(request)
+    return await rate_limit_middleware(request, call_next)
+
 
 @app.middleware("http")
 async def limit_body_size(request: Request, call_next: Any) -> Any:
@@ -143,6 +170,39 @@ async def limit_body_size(request: Request, call_next: Any) -> Any:
 
 _AUDIT_EXCLUDED_PATHS = {"/api/health"}  # pure liveness-check noise, never security-relevant
 _AUTH_RESPONSE_BODY_PATHS = {"/api/auth/register", "/api/auth/login"}
+
+
+def _is_audited(path: str) -> bool:
+    """Only API calls are compliance-relevant access events.
+
+    In the container the same app also serves the built SPA's shell and
+    asset files (see the catch-all at the bottom of this module). Auditing
+    those would write a row per asset per page load — noise that says
+    nothing about who read which fact, and enough of it to recreate the
+    unbounded-growth problem moving the log into Postgres was meant to
+    bound. An unmapped ``/api/*`` path is still audited: that one is a
+    documentation gap worth seeing in the log.
+    """
+    return path.startswith("/api/") and path not in _AUDIT_EXCLUDED_PATHS
+
+
+def _route_label(method: str, path: str, resource_id: str | None) -> str:
+    """Bounded metrics key for a request — a *route*, never a raw path.
+
+    Recording "/api/facts/<uuid>/confirm" verbatim would mint a new counter
+    per fact, and "/api/uploads/<doc>/page/7" one per page, so the metrics
+    collector would grow with traffic instead of with the API surface.
+
+    Both the classifier's resource id and any bare numeric segment are
+    collapsed. The numeric rule is what keeps this safe for routes the
+    classifier doesn't recognise yet: an unmapped id-carrying endpoint would
+    otherwise silently reintroduce the leak.
+    """
+    segments = [
+        "{id}" if segment and (segment == resource_id or segment.isdigit()) else segment
+        for segment in path.split("/")
+    ]
+    return f"{method} {'/'.join(segments)}"
 
 
 async def _resolve_actor(request: Request) -> tuple[str | None, str, Role | None]:
@@ -191,29 +251,31 @@ async def audit_log_middleware(request: Request, call_next: Any) -> Any:
     rejection is itself worth an audit record). Every step here is
     defensive: a bug in audit logging must never take down the actual
     request it's observing.
+
+    Now Postgres-backed (see ``app.audit.record_audit_event``) — the
+    previous encrypted-file approach had an O(n) rewrite per request.
+    Doubles as the timing point for :mod:`app.metrics`, since this is
+    already the outermost layer wrapping the real handler.
     """
     path = request.url.path
-    if path in _AUDIT_EXCLUDED_PATHS:
+    if not _is_audited(path):
         return await call_next(request)
 
+    start = time.monotonic()
     user_id, actor_email, actor_role = await _resolve_actor(request)
 
     # Login has no token yet — peek the submitted email so a *failed* login
-    # attempt is still attributable. Reading the body here is safe: Starlette
-    # caches it, so the route handler's own body parsing downstream still
-    # works off the same cached bytes.
+    # attempt is still attributable.
     attempted_login_email: str | None = None
     if path == "/api/auth/login" and request.method == "POST":
         try:
             attempted_login_email = json.loads(await request.body()).get("email")
-        except Exception:  # noqa: BLE001 — best-effort only, never blocks the request
+        except Exception:  # noqa: BLE001
             attempted_login_email = None
 
     response = await call_next(request)
 
-    # Login/register succeed with no prior token — the actor IS the account
-    # that request just authenticated/created. Buffer + replay the response
-    # body so we can read it without breaking the client's copy.
+    # Login/register succeed with no prior token — buffer + replay
     if path in _AUTH_RESPONSE_BODY_PATHS and response.status_code == 200:
         body = b"".join([chunk async for chunk in response.body_iterator])
         response = Response(
@@ -226,27 +288,41 @@ async def audit_log_middleware(request: Request, call_next: Any) -> Any:
             user_payload = json.loads(body)["user"]
             actor_email = user_payload["email"]
             actor_role = user_payload["role"]
-        except Exception:  # noqa: BLE001 — malformed body is not this middleware's problem
+        except Exception:  # noqa: BLE001
             pass
     elif path == "/api/auth/login" and attempted_login_email:
         actor_email = attempted_login_email
 
+    action, resource_type, resource_id = classify_request(request.method, path)
+
+    get_metrics_collector().record(
+        _route_label(request.method, path, resource_id),
+        response.status_code,
+        (time.monotonic() - start) * 1000,
+    )
+
+    # Record audit event to Postgres
     try:
-        action, resource_type, resource_id = classify_request(request.method, path)
-        get_audit_log().record(
-            AuditEvent(
-                actor_user_id=user_id,
-                actor_email=actor_email,
-                actor_role=actor_role,
-                method=request.method,
-                path=path,
-                status_code=response.status_code,
-                action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                outcome=outcome_for_status(response.status_code),
-            )
+        event = AuditEvent(
+            actor_user_id=user_id,
+            actor_email=actor_email,
+            actor_role=actor_role,
+            method=request.method,
+            path=path,
+            status_code=response.status_code,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            outcome=outcome_for_status(response.status_code),
         )
+        # Get a session for audit logging (independent of the request's session)
+        session_dependency = request.app.dependency_overrides.get(get_session, get_session)
+        session_gen = session_dependency()
+        audit_session = await anext(session_gen)
+        try:
+            await record_audit_event(audit_session, event)
+        finally:
+            await session_gen.aclose()
     except Exception:  # noqa: BLE001 — audit logging must never break the real request
         logger.exception("audit logging failed for %s %s", request.method, path)
 
@@ -303,13 +379,71 @@ class ExportResponse(BaseModel):
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "schema_version": checklist.header.schema_version}
+async def health(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Liveness + readiness: schema version, DB connectivity, uptime, request count.
+
+    ``status`` is ``"degraded"`` rather than ``"ok"`` when the database is
+    unreachable — the app process is alive but cannot serve facts, so a
+    load balancer or the Dockerfile's HEALTHCHECK should treat it as such.
+    """
+    db_ok = False
+    try:
+        await session.execute(sql_text("SELECT 1"))
+        db_ok = True
+    except Exception:  # noqa: BLE001 — health must report, never raise
+        logger.warning("health check: database unreachable", exc_info=True)
+
+    metrics = get_metrics_collector().snapshot()
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "schema_version": checklist.header.schema_version,
+        "db_connected": db_ok,
+        "uptime_seconds": metrics.uptime_seconds,
+        "total_requests": metrics.total_requests,
+    }
 
 
 @app.get("/api/schema")
 async def get_schema() -> Checklist:
     return checklist
+
+
+@app.get("/api/schema/clause/{clause_ref:path}")
+async def get_clause(
+    clause_ref: str,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return the actual ICDR regulation text for a given clause reference.
+
+    Maps clause_ref strings (e.g. "ICDR Sch. VI Part A, para (9)") to the
+    relevant passage from the regulation source files in data/regulation/.
+    """
+    text = get_clause_text(clause_ref)
+    return {
+        "clause_ref": clause_ref,
+        "text": text,
+        "found": text is not None,
+    }
+
+
+@app.get("/api/schema/clauses")
+async def list_clauses(
+    _user: User = Depends(get_current_user),
+) -> list[str]:
+    """List all clause keys with available regulation text."""
+    return list_available_clauses()
+
+
+@app.get("/api/metrics")
+async def metrics_endpoint(
+    _user: User = Depends(require_roles(Role.BANKER)),
+) -> AppMetrics:
+    """Request metrics: per-endpoint counts, latencies, error rates.
+
+    Banker-only — same oversight rationale as the audit log."""
+    return get_metrics_collector().snapshot()
 
 
 # --------------------------------------------------------------------------
@@ -803,6 +937,57 @@ async def suggested_fixes(
     return compute_suggested_fixes(sections, store, arithmetic, boilerplate_flags)
 
 
+@app.get("/api/validate/identifiers")
+async def validate_identifiers(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[IdentifierFinding]:
+    """Validate PAN/CIN/GSTIN format of confirmed facts.
+
+    Format-only checks (regex, no external API call) — catches typos,
+    OCR misreads that break the structure, and truncated identifiers.
+    Does not verify that a syntactically valid identifier is actually
+    registered with any government authority.
+    """
+    store = await facts_repo.load_fact_store(session)
+    return check_identifiers(store)
+
+
+@app.get("/api/validate/rpt")
+async def validate_rpt(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[RPTFinding]:
+    """Cross-check related-party disclosures against the promoter group.
+
+    Deterministic, no LLM: every entity named in an RPT disclosure should
+    also appear in the promoter-group list, and disclosed RPT amounts
+    should be accompanied by a materiality policy.
+    """
+    store = await facts_repo.load_fact_store(session)
+    return check_rpt(store)
+
+
+@app.get("/api/validate/lock-in")
+async def validate_lock_in(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[LockInFinding]:
+    """Promoter contribution + lock-in checks (ICDR Reg. 236–241)."""
+    store = await facts_repo.load_fact_store(session)
+    return check_lock_in(store)
+
+
+@app.get("/api/validate/pricing")
+async def validate_pricing(
+    _user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[PricingFinding]:
+    """Pricing/valuation cross-checks (ICDR Sch. VI Part A, para (9)(K))."""
+    store = await facts_repo.load_fact_store(session)
+    return check_pricing(store)
+
+
 class DiffRequest(BaseModel):
     before: str
     after: str
@@ -1043,6 +1228,7 @@ async def view_audit_log(
     outcome: Outcome | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=2000),
     _user: User = Depends(require_roles(Role.BANKER)),
+    session: AsyncSession = Depends(get_session),
 ) -> list[AuditEvent]:
     """Compliance review: who accessed or changed what, and when.
 
@@ -1053,7 +1239,8 @@ async def view_audit_log(
     denied ones, so this also answers "did anyone try something they
     shouldn't have."
     """
-    return get_audit_log().list_events(
+    return await list_audit_events(
+        session,
         actor_email=actor_email,
         action=action,
         resource_type=resource_type,
@@ -1116,3 +1303,43 @@ async def regulatory_watch_status(
     """The last cached check result, or ``null`` if none has run yet this
     process's lifetime — never triggers a fresh network call itself."""
     return runtime_cache.get_last_staleness_check()
+
+
+# --------------------------------------------------------------------------
+# Built frontend (production/container only)
+# --------------------------------------------------------------------------
+# In development the Vite dev server serves the SPA and proxies /api here, so
+# this directory doesn't exist and nothing below is mounted. In the container
+# image it does (see the Dockerfile's frontend-build stage), and the API
+# serves the SPA itself so the image is one deployable unit rather than
+# needing a second nginx container to be useful.
+#
+# Mounted last, after every /api route is registered, because the catch-all
+# would otherwise shadow them.
+
+_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    _INDEX_HTML = _FRONTEND_DIST / "index.html"
+
+    @app.get("/{spa_path:path}", include_in_schema=False)
+    async def serve_spa(spa_path: str) -> Response:
+        """Serve a built asset if one exists at this path, else index.html.
+
+        One catch-all rather than ``app.mount("/", StaticFiles(...))`` plus a
+        fallback route: a Mount swallows everything under its prefix, so a
+        react-router deep link (/wizard, /draft) would 404 on refresh instead
+        of falling through — and putting the fallback route *before* the
+        mount inverts the problem and shadows the real asset files. The
+        containment check keeps a crafted "../" path from reading outside
+        the built bundle.
+        """
+        # An unknown /api/* path must still 404 as JSON. Without this it
+        # would fall through to here and answer 200 with the SPA shell,
+        # which turns a typo'd endpoint into a silent, confusing success.
+        if spa_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = (_FRONTEND_DIST / spa_path).resolve()
+        if spa_path and candidate.is_relative_to(_FRONTEND_DIST) and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_INDEX_HTML)

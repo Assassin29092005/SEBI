@@ -49,9 +49,21 @@ class OcrUnavailable(Exception):
     """
 
 
+# pytesseract's own default ("tesseract", i.e. resolve via PATH), captured
+# before anything overrides it so a blank setting can be restored to it.
+_DEFAULT_TESSERACT_CMD = pytesseract.pytesseract.tesseract_cmd
+
+
 def _configure_tesseract_cmd() -> None:
-    if settings.tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+    """Point pytesseract at ``settings.tesseract_cmd``, or back at its default.
+
+    The reset half matters: this used to only ever *set* the path, guarded by
+    ``if settings.tesseract_cmd``. Once anything pointed it at a bad binary,
+    clearing the setting left pytesseract pinned to that bad path forever —
+    the guard simply skipped, so nothing put it back. Assigning
+    unconditionally makes the function a pure function of the setting.
+    """
+    pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd or _DEFAULT_TESSERACT_CMD
 
 
 @functools.lru_cache(maxsize=1)

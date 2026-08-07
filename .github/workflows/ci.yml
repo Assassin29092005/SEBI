@@ -31,6 +31,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Tesseract is a system binary, not a pip package — pytesseract is only
+      # the wrapper. Without it the real-OCR tests skip rather than fail, so
+      # CI would silently never exercise the OCR path even though the Docker
+      # image ships the binary.
+      # tesseract-ocr-eng is listed explicitly: --no-install-recommends drops
+      # it otherwise, and the binary then runs but can't OCR anything. Matches
+      # what the Dockerfile installs.
+      - name: Install Tesseract OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
+
       - name: Install backend + dev deps
         run: pip install -e "backend[dev]"
 
@@ -69,6 +81,37 @@ jobs:
         working-directory: frontend
         run: npm install
 
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
       - name: Build (includes tsc type-check)
         working-directory: frontend
         run: npm run build
+
+  # Proves the Dockerfile still builds — the deployable artefact, not a
+  # deploy. There is no hosted environment to push to (single-tenant, run by
+  # the issuer), so a registry push/deploy step would be theatre; catching a
+  # broken image build in CI is the part that has real value.
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: drhp-studio:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test the image
+        run: |
+          docker run --rm drhp-studio:ci python -c "import app.main; print('app imports OK')"
+          docker run --rm drhp-studio:ci tesseract --version

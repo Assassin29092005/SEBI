@@ -84,6 +84,30 @@ def test_ocr_image_bytes_raises_on_unopenable_bytes() -> None:
         ocr_image_bytes(b"this is not an image at all")
 
 
+def test_a_bad_tesseract_cmd_does_not_stick_after_it_is_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pointing at a bad binary must not disable OCR for the whole process.
+
+    ``_configure_tesseract_cmd`` used to only ever *set* pytesseract's path,
+    guarded by ``if settings.tesseract_cmd``. Reverting the setting to blank
+    then skipped the guard entirely, leaving pytesseract pinned to the bad
+    path — so every later OCR call in the process raised OcrUnavailable.
+
+    It only showed up where ``TESSERACT_CMD`` is unset (CI), because a
+    machine with it set had the revert put a good path back by accident.
+    """
+    before = is_ocr_available()
+
+    monkeypatch.setattr(settings, "tesseract_cmd", "/definitely/not/a/real/tesseract/binary")
+    is_ocr_available.cache_clear()
+    assert is_ocr_available() is False
+
+    monkeypatch.undo()
+    is_ocr_available.cache_clear()
+    assert is_ocr_available() is before
+
+
 # --------------------------------------------------------------------------
 # PDF page rendering (PyMuPDF — always available, no Tesseract needed)
 # --------------------------------------------------------------------------
