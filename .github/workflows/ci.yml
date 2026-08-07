@@ -35,8 +35,13 @@ jobs:
       # the wrapper. Without it the real-OCR tests skip rather than fail, so
       # CI would silently never exercise the OCR path even though the Docker
       # image ships the binary.
+      # tesseract-ocr-eng is listed explicitly: --no-install-recommends drops
+      # it otherwise, and the binary then runs but can't OCR anything. Matches
+      # what the Dockerfile installs.
       - name: Install Tesseract OCR
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng
 
       - name: Install backend + dev deps
         run: pip install -e "backend[dev]"
