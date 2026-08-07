@@ -53,6 +53,52 @@ origin — cross-origin requests are not part of normal use. Set it to
 `https://<your-service>.onrender.com` only if you ever host the frontend
 separately.
 
+## Where the data actually lives
+
+Three separate places, and the difference matters:
+
+| What | Where it lives in production | Survives a deploy? |
+|---|---|---|
+| Facts, users, review state, audit log | **Render Managed Postgres** — a separate service Render runs, not part of your container | Yes |
+| Archived original uploads | The **container's own filesystem**, `/app/data/uploads` | **No** on free (no disk) |
+| Generated draft sections | Process memory (`app.runtime_cache`) | No — regenerate with `POST /api/generate` |
+
+The database is **not inside your Docker container**, and it is **not** the
+Postgres from `docker-compose.yml` — that file is local development only and
+Render never reads it. Render provisions its own PostgreSQL instance in the
+region you picked, on storage it manages; you never see it as a filesystem.
+The web service reaches it over Render's private network using the Internal
+URL that `fromDatabase` wires in.
+
+The practical consequence: **deploying new code never touches your data.**
+The container is replaced on every deploy; Postgres is not. That is also why
+the uploads vault is the one thing at risk on the free tier — it rides on the
+container, not the database.
+
+## Browsing the production database from pgAdmin
+
+Render's database has two URLs. The **Internal** one only resolves inside
+Render and is what the app uses. For pgAdmin you need the **External** one:
+dashboard → your database → **Connect** → External.
+
+| pgAdmin field | Value |
+|---|---|
+| Host name/address | the host from the External URL |
+| Port | `5432` |
+| Maintenance database | `drhp_studio` |
+| Username | `drhp` |
+| Password | from the External URL |
+| SSL tab → SSL mode | **`require`** |
+
+TLS 1.2+ is mandatory on the external endpoint, so `sslmode=require` is not
+optional — a plain connection is refused.
+
+Before you do this, restrict the database's **IP allow list** (dashboard →
+your database → Access Control) to your own IP. The allow list applies to
+external access only, so the app's internal connection is unaffected. That
+endpoint is on the public internet and the database holds your users'
+password hashes, not just synthetic issuer data.
+
 ## After the first deploy
 
 Migrations run automatically at container start, so the database is ready.

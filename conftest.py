@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 # One-time setup: ``docker compose exec postgres createdb -U drhp drhp_studio_test``.
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio_test",
+    "postgresql+asyncpg://drhp:drhp_dev_password@localhost:5433/drhp_studio_test",
 )
 
 

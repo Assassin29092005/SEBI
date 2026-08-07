@@ -5,8 +5,15 @@ services:
       POSTGRES_DB: drhp_studio
       POSTGRES_USER: drhp
       POSTGRES_PASSWORD: drhp_dev_password
+    # 5433 on the host, deliberately not 5432. Port 5432 belongs to whatever
+    # Postgres the developer's machine already runs — pgAdmin, another
+    # project's container, a native install. Squatting on it makes those fail
+    # with "password authentication failed for user postgres", which reads
+    # like a credentials problem and sends you looking in the wrong place.
+    # Inside the compose network Postgres still listens on 5432, so
+    # `docker compose exec` and container-to-container URLs are unaffected.
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - drhp_pgdata:/var/lib/postgresql/data
     healthcheck:

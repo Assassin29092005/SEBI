@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # docker-compose.yml's postgres service exactly — `docker compose up -d`
     # plus `alembic upgrade head` is the entire local-dev setup, zero .env
     # edits required. Production sets DATABASE_URL in the environment.
-    database_url: str = "postgresql+asyncpg://drhp:drhp_dev_password@localhost:5432/drhp_studio"
+    database_url: str = "postgresql+asyncpg://drhp:drhp_dev_password@localhost:5433/drhp_studio"
 
     @field_validator("database_url")
     @classmethod
