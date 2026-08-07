@@ -100,6 +100,13 @@ _RATE_LIMITS: list[tuple[str, str | None, int]] = [
     ("/api/validate/semantic", "GET", 10),
     # Upload: bounded by body-size middleware too, but limit request count
     ("/api/uploads/extract", "POST", 20),
+    # Fact writes are legitimately bursty: confirming a wizard-full of answers,
+    # or accepting a page of extracted proposals, is two requests per fact in
+    # quick succession. Keyed per user and cheap to serve, so the budget is
+    # sized for that flow rather than for one-at-a-time human typing — at 60
+    # the demo seeder tripped its own API.
+    ("/api/facts", None, 240),
+    ("/api/proposals/accept", "POST", 240),
     # Regulatory watch: external HTTP call to SEBI
     ("/api/regulatory-watch/check", "POST", 3),
 ]

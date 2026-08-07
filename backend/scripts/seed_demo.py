@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -40,6 +41,35 @@ DEMO_DIR = REPO_ROOT / "data" / "demo_company"
 DEMO_PROMOTER_EMAIL = "promoter@sunriseagrotech.example"
 DEMO_PROMOTER_PASSWORD = "SunriseDemo!2026"  # synthetic demo account, not a real credential
 DEMO_PROMOTER_NAME = "Sunrise Agrotech Promoter"
+
+
+class _RetryOn429(httpx.BaseTransport):
+    """Wait out the API's own rate limiter instead of falling over on it.
+
+    Seeding pushes two requests per fact (add, then confirm) as fast as the
+    network allows — comfortably past the per-minute budget in
+    ``app.rate_limit``. The right response for a legitimate bulk client is to
+    honour the ``Retry-After`` the server just asked for, not to relax the
+    limit for everyone else. Installed once on the client, so every call site
+    below gets it without knowing about it.
+    """
+
+    def __init__(self, inner: httpx.BaseTransport, max_retries: int = 6) -> None:
+        self._inner = inner
+        self._max_retries = max_retries
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        for attempt in range(self._max_retries + 1):
+            response = self._inner.handle_request(request)
+            if response.status_code != 429 or attempt == self._max_retries:
+                return response
+            response.read()
+            response.close()
+            # +0.5s so we land after the window rolls, not exactly on it.
+            wait = float(response.headers.get("retry-after", "1")) + 0.5
+            print(f"  · rate limited, waiting {wait:.0f}s", flush=True)
+            time.sleep(wait)
+        return response
 
 
 def _authenticate(client: httpx.Client) -> str:
@@ -121,7 +151,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    with httpx.Client(base_url=args.base_url, timeout=30.0) as client:
+    with httpx.Client(
+        base_url=args.base_url,
+        timeout=30.0,
+        transport=_RetryOn429(httpx.HTTPTransport()),
+    ) as client:
         try:
             client.get("/api/health").raise_for_status()
         except httpx.HTTPError as exc:
