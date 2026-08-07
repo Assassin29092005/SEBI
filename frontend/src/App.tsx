@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect, useState, type ReactElement } from "react";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { getSchema, type ChecklistHeader, type LoginRole } from "./api/client";
 import { useAuth } from "./auth/AuthContext";
 import Login from "./pages/Login";
@@ -9,17 +9,53 @@ import GapReport from "./pages/GapReport";
 import DraftViewer from "./pages/DraftViewer";
 import BankerDashboard from "./pages/BankerDashboard";
 
-// Nav filtering only — the server enforces the actual role boundaries (see
-// backend/app/auth); this just keeps the nav from listing links a given
-// account cannot use. Auditor has no dedicated workspace yet (documented
-// limitation) but can still read the draft, same as a banker.
-const nav: { to: string; label: string; roles: LoginRole[] }[] = [
-  { to: "/", label: "Eligibility", roles: ["promoter"] },
-  { to: "/wizard", label: "Wizard", roles: ["promoter"] },
-  { to: "/gaps", label: "Gap Report", roles: ["promoter"] },
-  { to: "/draft", label: "Draft", roles: ["promoter", "auditor", "banker"] },
-  { to: "/banker", label: "Banker Dashboard", roles: ["banker"] },
+// One list drives both the nav and the router. It used to be two: a
+// role-filtered `nav` array plus a separate <Routes> block that knew nothing
+// about roles — so the nav correctly hid Eligibility from an auditor or
+// banker while `path="/"` still rendered it to them. Signing in as a banker
+// landed on a promoter-only form whose Check button answered
+// `POST /api/eligibility -> 403`, with no link having been clicked.
+//
+// This is nav *filtering*, not enforcement — the server is the real boundary
+// (see backend/app/auth). Its job is to make sure the UI never offers, or
+// lands on, a page the signed-in role cannot use. Auditor has no dedicated
+// workspace yet (documented limitation) but can read the draft, same as a
+// banker.
+const ROUTES: {
+  to: string;
+  label: string;
+  roles: LoginRole[];
+  element: ReactElement;
+}[] = [
+  { to: "/eligibility", label: "Eligibility", roles: ["promoter"], element: <Eligibility /> },
+  { to: "/wizard", label: "Wizard", roles: ["promoter"], element: <Wizard /> },
+  { to: "/gaps", label: "Gap Report", roles: ["promoter"], element: <GapReport /> },
+  {
+    to: "/draft",
+    label: "Draft",
+    roles: ["promoter", "auditor", "banker"],
+    element: <DraftViewer />,
+  },
+  { to: "/banker", label: "Banker Dashboard", roles: ["banker"], element: <BankerDashboard /> },
 ];
+
+/** Where each role starts — its own workspace, not merely the first page it
+ * happens to be allowed to open.
+ *
+ * Stated per role rather than derived from ROUTES order: "first accessible
+ * entry" put a banker on the read-only Draft page, because Draft is listed
+ * before Banker Dashboard. Not broken, but the wrong home for the one role
+ * whose whole job is certification. The fallback still derives, so a role
+ * added without a home here lands somewhere it can actually use. */
+const LANDING: Record<LoginRole, string> = {
+  promoter: "/eligibility", // the start of the promoter journey
+  auditor: "/draft", // no dedicated workspace yet (documented limitation)
+  banker: "/banker", // certification dashboard
+};
+
+function landingFor(role: LoginRole): string {
+  return LANDING[role] ?? ROUTES.find((r) => r.roles.includes(role))?.to ?? "/draft";
+}
 
 const ROLE_LABEL: Record<LoginRole, string> = {
   promoter: "Promoter",
@@ -60,7 +96,7 @@ function AuthedApp() {
 
   if (!user) return null; // App() only mounts AuthedApp once user is set
 
-  const visibleNav = nav.filter((item) => item.roles.includes(user.role));
+  const visibleNav = ROUTES.filter((item) => item.roles.includes(user.role));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -159,11 +195,21 @@ function AuthedApp() {
       </header>
       <main id="main-content" className="p-4 sm:p-6 max-w-4xl mx-auto">
         <Routes>
-          <Route path="/" element={<Eligibility />} />
-          <Route path="/wizard" element={<Wizard />} />
-          <Route path="/gaps" element={<GapReport />} />
-          <Route path="/draft" element={<DraftViewer />} />
-          <Route path="/banker" element={<BankerDashboard />} />
+          {/* Root is a redirect, never a page — otherwise every role lands on
+              whatever happens to be mounted at "/". */}
+          <Route path="/" element={<Navigate to={landingFor(user.role)} replace />} />
+          {ROUTES.map((r) => (
+            <Route
+              key={r.to}
+              path={r.to}
+              // A typed or bookmarked URL bypasses the nav entirely, so the
+              // guard lives on the route, not on the link.
+              element={
+                r.roles.includes(user.role) ? r.element : <Navigate to={landingFor(user.role)} replace />
+              }
+            />
+          ))}
+          <Route path="*" element={<Navigate to={landingFor(user.role)} replace />} />
         </Routes>
       </main>
     </div>
