@@ -27,7 +27,9 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 _TIMEOUT_SECONDS = 30.0
-# Module-level so tests can patch it to 0; one retry only (hackathon, not production).
+# Module-level so tests can patch it to 0. One retry only: a provider that
+# failed twice is down, and every LLM path here has a deterministic
+# fallback, so waiting longer buys nothing a caller can use.
 _RETRY_BACKOFF_SECONDS = 0.5
 
 

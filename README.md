@@ -128,6 +128,10 @@ filing quarters and sectors: 100% in-scope chapter match on every one
   state, user accounts, and the access-log audit trail all live in Postgres,
   not on disk — see `app.db`, `app.audit`.
 - `tests/` — 410 backend test functions (needs a running Postgres — see below).
+- Each role has its own workspace: promoter (eligibility → wizard → gaps →
+  draft), auditor (upload and confirm restated financials), merchant banker
+  (certification, access log, service metrics). Signing in lands you on
+  yours.
 - `Dockerfile` — one deployable image: backend, built frontend (served by the
   API itself), and Tesseract. `.github/workflows/ci.yml` builds it on every
   push alongside the test/lint/type-check jobs.

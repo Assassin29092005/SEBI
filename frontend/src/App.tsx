@@ -8,6 +8,7 @@ import Wizard from "./pages/Wizard";
 import GapReport from "./pages/GapReport";
 import DraftViewer from "./pages/DraftViewer";
 import BankerDashboard from "./pages/BankerDashboard";
+import AuditorWorkspace from "./pages/AuditorWorkspace";
 
 // One list drives both the nav and the router. It used to be two: a
 // role-filtered `nav` array plus a separate <Routes> block that knew nothing
@@ -36,6 +37,7 @@ const ROUTES: {
     roles: ["promoter", "auditor", "banker"],
     element: <DraftViewer />,
   },
+  { to: "/auditor", label: "Auditor Workspace", roles: ["auditor"], element: <AuditorWorkspace /> },
   { to: "/banker", label: "Banker Dashboard", roles: ["banker"], element: <BankerDashboard /> },
 ];
 
@@ -49,7 +51,7 @@ const ROUTES: {
  * added without a home here lands somewhere it can actually use. */
 const LANDING: Record<LoginRole, string> = {
   promoter: "/eligibility", // the start of the promoter journey
-  auditor: "/draft", // no dedicated workspace yet (documented limitation)
+  auditor: "/auditor", // upload + confirm restated financials
   banker: "/banker", // certification dashboard
 };
 

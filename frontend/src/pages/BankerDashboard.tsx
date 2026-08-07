@@ -10,6 +10,7 @@ import {
   getAuditLog,
   getContradictions,
   getExtractionReliability,
+  getMetrics,
   getRegulatoryWatchStatus,
   getReviewState,
   getSchema,
@@ -17,6 +18,7 @@ import {
   postRegulatoryWatchCheck,
   recordEdit,
   uploadExtract,
+  type AppMetrics,
   type AuditEvent,
   type AuditOutcome,
   type BankerEdit,
@@ -307,6 +309,128 @@ const AUDIT_PAGE_SIZE = 100;
 function formatAuditTime(iso: string): string {
   const parsed = new Date(iso);
   return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleString();
+}
+
+// --------------------------------------------------------------------------
+// Service metrics (backend/app/metrics.py). Banker-only for the same reason
+// the audit log is: oversight of the tool itself, not draft content.
+//
+// Self-contained and click-to-load like AuditLogPanel below — the
+// certification workflow must never wait on, or break because of, an
+// observability endpoint.
+// --------------------------------------------------------------------------
+
+function formatUptime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function ServiceMetricsPanel() {
+  const [metrics, setMetrics] = useState<AppMetrics | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setMetrics(await getMetrics());
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Busiest first — the long tail of once-called routes is rarely the
+  // question you opened this panel to answer.
+  const busiest = useMemo(
+    () => [...(metrics?.endpoints ?? [])].sort((a, b) => b.total_requests - a.total_requests),
+    [metrics],
+  );
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      <h2 className="text-lg font-semibold mb-1">Service metrics</h2>
+      <p className="text-sm text-slate-600 mb-3 max-w-3xl">
+        Request volume, error rate and latency per route. Counters live in the
+        server process, so they reset on every restart and do not aggregate
+        across instances — this answers &ldquo;is the service healthy right
+        now&rdquo;, not &ldquo;what happened last week&rdquo;.
+      </p>
+
+      <div className="flex items-center gap-2 mb-3">
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          className="px-3 py-1.5 rounded bg-gray-900 text-white text-xs hover:bg-gray-700 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : metrics ? "Refresh" : "Load metrics"}
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+
+      {metrics && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            {[
+              { label: "Uptime", value: formatUptime(metrics.uptime_seconds) },
+              { label: "Requests", value: metrics.total_requests.toLocaleString() },
+              { label: "Errors", value: metrics.total_errors.toLocaleString() },
+              { label: "Req/min", value: metrics.requests_per_minute.toFixed(1) },
+            ].map((tile) => (
+              <div key={tile.label} className="rounded border border-slate-200 p-2.5">
+                <div className="text-[11px] uppercase tracking-wide text-gray-500">
+                  {tile.label}
+                </div>
+                <div className="text-lg font-semibold text-gray-900">{tile.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500">
+                  <th className="py-1 pr-3 font-medium">Route</th>
+                  <th className="py-1 pr-3 font-medium text-right">Requests</th>
+                  <th className="py-1 pr-3 font-medium text-right">Errors</th>
+                  <th className="py-1 pr-3 font-medium text-right">Avg ms</th>
+                  <th className="py-1 font-medium text-right">p95 ms</th>
+                </tr>
+              </thead>
+              <tbody>
+                {busiest.map((e) => (
+                  <tr key={e.path} className="border-t border-gray-100">
+                    <td className="py-1 pr-3 font-mono break-all">{e.path}</td>
+                    <td className="py-1 pr-3 text-right">{e.total_requests}</td>
+                    <td
+                      className={`py-1 pr-3 text-right ${e.error_count > 0 ? "text-red-700 font-medium" : "text-gray-500"}`}
+                    >
+                      {e.error_count}
+                    </td>
+                    <td className="py-1 pr-3 text-right">{e.avg_latency_ms}</td>
+                    <td className="py-1 text-right">{e.p95_latency_ms}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {busiest.length === 0 && (
+            <p className="text-xs text-gray-600">No requests recorded since the last restart.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function AuditLogPanel() {
@@ -1295,6 +1419,9 @@ export default function BankerDashboard() {
 
       {/* --- Access log (who looked at what) ----------------------------- */}
       <AuditLogPanel />
+
+      {/* --- Service metrics (is the tool itself healthy) ----------------- */}
+      <ServiceMetricsPanel />
 
 
       {/* --- Regulatory staleness watcher --------------------------------- */}
