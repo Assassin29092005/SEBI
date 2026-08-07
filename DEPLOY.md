@@ -153,7 +153,18 @@ alters:
 ## If a deploy fails
 
 **Builds, then never passes the health check** — almost always the port. The
-service must listen on `$PORT`; `render.yaml`'s `dockerCommand` already does.
+service must listen on `$PORT`; `docker-entrypoint.sh` already does.
+
+**`Exited with status 127` and a `sh: 1: ...: not found` naming your whole
+start command** — something is wrapping the command in an extra shell. Render
+runs a start command through its own shell, so an `sh -c "..."` around a
+`cd … && … && …` chain leaves the inner shell treating the entire chain as
+one program name. The image's `CMD` is a single script for exactly this
+reason; don't reintroduce an inline `dockerCommand`.
+
+**`/bin/sh^M: bad interpreter`** — `docker-entrypoint.sh` was committed with
+CRLF endings. `.gitattributes` pins `*.sh` to LF; check it survived your
+clone.
 
 **`No module named 'psycopg2'`** — something is passing a `postgresql://` URL
 past `Settings._require_async_driver`. The app needs the asyncpg driver named

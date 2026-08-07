@@ -1,0 +1,10 @@
+# Shell scripts must keep LF endings regardless of the checkout platform.
+# A CRLF-terminated shebang makes Linux report `/bin/sh^M: bad interpreter`,
+# which reads as a missing shell rather than a line-ending problem — and on
+# a Windows clone git would otherwise convert docker-entrypoint.sh happily.
+*.sh text eol=lf
+
+# Same reasoning for anything else the container executes or parses as text.
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

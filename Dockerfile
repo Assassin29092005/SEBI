@@ -46,6 +46,13 @@ RUN pip install --no-cache-dir --no-deps -e "backend/"
 # bottom of app/main.py), so the image is one deployable unit.
 COPY --from=frontend-build /app/frontend/dist frontend/dist
 
+# Start script: migrations, then uvicorn on $PORT. Kept in the image so the
+# real start sequence is exercised by `docker run` locally and not only by
+# deployment config. chmod here rather than relying on the checkout's mode
+# bit, which Windows clones do not preserve.
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Create data directories
 RUN mkdir -p data/uploads data/audit out backups
 
@@ -64,5 +71,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import json,urllib.request,sys; \
 sys.exit(0 if json.load(urllib.request.urlopen('http://localhost:8000/api/health'))['db_connected'] else 1)"
 
-# Run with uvicorn
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrations then uvicorn — see docker-entrypoint.sh for why this is a script
+# and not an inline command string.
+CMD ["/app/docker-entrypoint.sh"]
