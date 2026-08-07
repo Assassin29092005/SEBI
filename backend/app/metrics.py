@@ -5,9 +5,11 @@ and a ``GET /api/metrics`` endpoint (banker-only) that returns the counters
 as JSON.  Hooks into the existing audit middleware flow via
 ``record_request``.
 
-Intentionally lightweight: a real production deployment would swap this
-for Prometheus + Grafana, but this gives immediate observability for a
-demo/hackathon without adding infrastructure.
+Intentionally lightweight. Prometheus + Grafana is what this would be
+swapped for once there is somewhere to ship metrics to; in-process counters
+are what make the app observable without adding infrastructure to run
+alongside it. The trade-off is real and bounded: state is per-process, so it
+resets on restart and does not aggregate across instances.
 """
 
 from __future__ import annotations

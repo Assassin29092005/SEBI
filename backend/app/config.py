@@ -26,9 +26,6 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash"
     groq_model: str = "llama-3.3-70b-versatile"
 
-    api_host: str = "127.0.0.1"
-    api_port: int = 8000
-
     data_dir: Path = REPO_ROOT / "data"
 
     # Postgres connection string (SQLAlchemy async URL). Default matches

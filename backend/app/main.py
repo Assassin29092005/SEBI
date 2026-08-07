@@ -86,7 +86,7 @@ from app.rate_limit import rate_limit_middleware
 from app.regulatory_watch import StalenessCheckResult, check_for_staleness
 from app.review import repo as review_repo
 from app.review.workflow import BankerEdit, ReviewState, SectionState, export_allowed
-from app.schema.clause_text import get_clause_text, list_available_clauses
+from app.schema.clause_text import get_clause_text
 from app.schema.loader import load_checklist
 from app.schema.models import Checklist, OutputTarget, Role
 from app.validate.arithmetic import ArithmeticFinding, check_arithmetic
@@ -426,14 +426,6 @@ async def get_clause(
         "text": text,
         "found": text is not None,
     }
-
-
-@app.get("/api/schema/clauses")
-async def list_clauses(
-    _user: User = Depends(get_current_user),
-) -> list[str]:
-    """List all clause keys with available regulation text."""
-    return list_available_clauses()
 
 
 @app.get("/api/metrics")

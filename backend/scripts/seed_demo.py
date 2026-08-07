@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -38,9 +39,15 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEMO_DIR = REPO_ROOT / "data" / "demo_company"
 
-DEMO_PROMOTER_EMAIL = "promoter@sunriseagrotech.example"
-DEMO_PROMOTER_PASSWORD = "SunriseDemo!2026"  # synthetic demo account, not a real credential
+DEMO_PROMOTER_EMAIL = os.environ.get("DEMO_PROMOTER_EMAIL", "promoter@sunriseagrotech.example")
 DEMO_PROMOTER_NAME = "Sunrise Agrotech Promoter"
+
+# The default is committed, so it is public — fine for a laptop, not for a
+# deployment anyone can reach. Seeding a public instance with it leaves an
+# account whose password is readable in this file, and a passer-by could sign
+# in and edit the demo data mid-presentation. Override for anything reachable:
+#   DEMO_PROMOTER_PASSWORD='...' python backend/scripts/seed_demo.py --base-url https://...
+DEMO_PROMOTER_PASSWORD = os.environ.get("DEMO_PROMOTER_PASSWORD", "SunriseDemo!2026")
 
 
 class _RetryOn429(httpx.BaseTransport):

@@ -788,6 +788,33 @@ export const exportPackage = (): Promise<ExportResponse> =>
 export const getExtractionReliability = (): Promise<ExtractionReliabilityReport> =>
   apiGet<ExtractionReliabilityReport>("/api/extraction-reliability");
 
+// --------------------------------------------------------------------------
+// Service metrics (backend/app/metrics.py) — banker-only, same oversight
+// rationale as the audit log. Counters are per-process and reset on restart,
+// so this is "is the service healthy right now", not a historical record.
+// --------------------------------------------------------------------------
+
+export interface EndpointMetrics {
+  /** A route label ("GET /api/facts/{id}"), never a raw path with ids in it. */
+  path: string;
+  total_requests: number;
+  error_count: number;
+  avg_latency_ms: number;
+  /** Over the last 512 requests to this route, not over all time. */
+  p95_latency_ms: number;
+  status_codes: Record<string, number>;
+}
+
+export interface AppMetrics {
+  uptime_seconds: number;
+  total_requests: number;
+  total_errors: number;
+  requests_per_minute: number;
+  endpoints: EndpointMetrics[];
+}
+
+export const getMetrics = (): Promise<AppMetrics> => apiGet<AppMetrics>("/api/metrics");
+
 // Regulatory staleness watcher (banker-only, backend/app/regulatory_watch.py)
 // — compares the checklist schema's pinned amended_through date against
 // SEBI's real, live ICDR-tagged postings. A real external HTTP call, so the
